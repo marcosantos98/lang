@@ -1,0 +1,2 @@
+- Improve error handling. Currently I'm using runtime asserts.
+- Different type for Statment vs Expr.
