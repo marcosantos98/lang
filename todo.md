@@ -1,2 +1,3 @@
 - Improve error handling. Currently I'm using runtime asserts.
 - Different type for Statment vs Expr.
+- Package definitions to help with transpile. add package name to begin of each module declaration
