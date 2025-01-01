@@ -1,8 +1,10 @@
-sum :: int() {
-}
+import "std.lang"
 
 main :: void() {
     a := 10
     b := "Hello"
-    c := sum()
+    
+    puts(b)
+
+    exit(a)
 }

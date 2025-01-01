@@ -21,6 +21,7 @@ FileContext :: struct {
         functions: map[string]struct {
             type: string,
         },
+        vars:      map[string]string,
     },
     file:       struct {
         file_path: string,
@@ -232,7 +233,7 @@ LiteralExpr :: struct {
 
 FnCallExpr :: struct {
     name:   Token,
-    params: []Expr,
+    params: []Stmt,
 }
 
 VarDeclExpr :: struct {
@@ -240,9 +241,14 @@ VarDeclExpr :: struct {
     expr: Stmt,
 }
 
+VarStmt :: struct {
+    name: Token,
+}
+
 Stmt :: union {
     LiteralExpr,
     FnCallExpr,
+    VarStmt,
 }
 
 Expr :: union {
@@ -410,14 +416,14 @@ parse :: proc(filectx: ^FileContext) -> bool {
         fmt.assertf(tok(filectx).type == .OPEN_PAREN, "Expect '(' after function name, found {}", tok(filectx).lit)
         adv(filectx) // (
 
-        args := make([dynamic]Expr, context.temp_allocator)
+        args := make([dynamic]Stmt, context.temp_allocator)
         for tok(filectx).type != .CLOSE_PAREN {
             fmt.assertf(
                 tok(filectx).type != .EOF,
                 "Expect either proc parameters or `)`, found end of file",
                 tok(filectx).lit,
             )
-            if expr, ok := parse_expr(filectx); ok {
+            if expr, ok := parse_stmt(filectx); ok {
                 append(&args, expr)
             } else {
                 return {}, false
@@ -444,6 +450,12 @@ parse :: proc(filectx: ^FileContext) -> bool {
         return {path}, true
     }
 
+    parse_var_stmt :: proc(filectx: ^FileContext) -> (VarStmt, bool) {
+        name := tok(filectx)
+        adv(filectx) // name
+        return {name}, true
+    }
+
     parse_stmt :: proc(filectx: ^FileContext) -> (Stmt, bool) {
         #partial switch tok(filectx).type {
         case .LIT_STR:
@@ -451,14 +463,10 @@ parse :: proc(filectx: ^FileContext) -> bool {
         case .LIT_NUMBER:
             return parse_lit_number(filectx)
         case .IDENTIFIER:
-            if expr, ok := try_parse_ident(filectx); ok {
-                if it, okk := expr.(FnCallExpr); okk {
-                    return it, true
-                } else {
-                    return nil, false
-                }
+            if next_is(filectx, .OPEN_PAREN) {
+                return parse_fn_call_expr(filectx)
             } else {
-                return nil, false
+                return parse_var_stmt(filectx)
             }
         }
         return nil, false
@@ -612,7 +620,7 @@ transpile_cpp :: proc(filectx: ^FileContext, transpiler: Transpiler) -> bool {
         decl_write(transpiler, "{}(", expr.name.lit)
         for i in 0 ..< len(expr.params) {
             it := expr.params[i]
-            transpile_expr(filectx, transpiler, it)
+            transpile_stmt(filectx, transpiler, it)
             if i != len(expr.params) - 1 {
                 decl_write(transpiler, ", ")
             }
@@ -644,8 +652,14 @@ transpile_cpp :: proc(filectx: ^FileContext, transpiler: Transpiler) -> bool {
                 // FIXME: Number is hardcoded to int
                 return "int"
             }
+        case VarStmt:
+            return filectx.transpiler.vars[v.name.lit]
         }
         fmt.panicf("adjkas {}", stmt)
+    }
+
+    transpile_var :: proc(filectx: ^FileContext, transpiler: Transpiler, stmt: VarStmt) {
+        decl_write(transpiler, "{}", stmt.name.lit)
     }
 
     transpile_stmt :: proc(filectx: ^FileContext, transpiler: Transpiler, stmt: Stmt) {
@@ -654,6 +668,8 @@ transpile_cpp :: proc(filectx: ^FileContext, transpiler: Transpiler) -> bool {
             transpile_fn_call(filectx, transpiler, v)
         case LiteralExpr:
             transpile_lit(filectx, transpiler, v)
+        case VarStmt:
+            transpile_var(filectx, transpiler, v)
         }
     }
 
@@ -663,6 +679,8 @@ transpile_cpp :: proc(filectx: ^FileContext, transpiler: Transpiler) -> bool {
         decl_write(transpiler, "{} {} = ", type, expr.name.lit)
         transpile_stmt(filectx, transpiler, expr.expr)
         decl_write(transpiler, ";\n")
+
+        filectx.transpiler.vars[expr.name.lit] = type
     }
 
 
