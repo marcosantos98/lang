@@ -673,13 +673,13 @@ do_all_passes_on_file :: proc(filectx: ^FileContext) -> bool {
     }
 
     if path_no_ext, ok := strings.substring_to(path, strings.last_index(path, ".")); ok {
-        if fd, err := os.open(fmt.tprintf("{}.cpp", path_no_ext), os.O_CREATE | os.O_RDWR | os.O_TRUNC);
-           err == os.ERROR_NONE {
-            os.write_string(fd, strings.to_string(filectx.transpiler.defines))
-            os.write_string(fd, "/* -- Top Level -- */\n")
-            os.write_string(fd, strings.to_string(filectx.transpiler.top_level))
-            os.write_string(fd, "/* -- --------- -- */\n")
-            os.write_string(fd, strings.to_string(filectx.transpiler.decl))
+        source := fmt.tprintf(
+            "{}\n{}\n{}\n",
+            strings.to_string(filectx.transpiler.defines),
+            strings.to_string(filectx.transpiler.top_level),
+            strings.to_string(filectx.transpiler.decl),
+        )
+        if suc := os.write_entire_file(fmt.tprintf("{}.cpp", path_no_ext), transmute([]u8)source); suc {
             fmt.printfln("Transpiled {} to C++ file at: {}", path, fmt.tprintf("{}.cpp", path_no_ext))
             filectx.file.cpp_path = fmt.tprintf("{}.cpp", path_no_ext)
         } else {
