@@ -29,3 +29,11 @@ Currently it copies everthing to who imported it.
 ```
 import "<filepath>"
 ```
+
+## var
+
+```
+a := 0
+b := ""
+c := fn()
+```

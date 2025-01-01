@@ -18,6 +18,9 @@ FileContext :: struct {
         defines:   strings.Builder,
         decl:      strings.Builder,
         top_level: strings.Builder,
+        functions: map[string]struct {
+            type: string,
+        },
     },
     file:       struct {
         file_path: string,
@@ -44,6 +47,7 @@ TokenType :: enum {
     COMMA,
     LIT_STR,
     LIT_NUMBER,
+    EQ,
     EOF,
 }
 
@@ -135,6 +139,10 @@ tokenize :: proc(file_context: ^FileContext) -> bool {
             append(&tokens, make_token(.COMMA, cursor, cursor + 1, col, row, file_context))
             col += 1
             cursor += 1
+        case '=':
+            append(&tokens, make_token(.EQ, cursor, cursor + 1, col, row, file_context))
+            col += 1
+            cursor += 1
         case '"':
             // FIXME: this fucks the col
             start := cursor + 1 // adv "
@@ -179,6 +187,7 @@ Keywords :: enum {
     EXTERNAL,
     IMPORT,
 }
+
 keywords := map[string]Keywords {
     "extern" = .EXTERNAL,
     "import" = .IMPORT,
@@ -226,12 +235,23 @@ FnCallExpr :: struct {
     params: []Expr,
 }
 
+VarDeclExpr :: struct {
+    name: Token,
+    expr: Stmt,
+}
+
+Stmt :: union {
+    LiteralExpr,
+    FnCallExpr,
+}
+
 Expr :: union {
     FnDeclExpr,
     ExternalFnExpr,
     LiteralExpr,
     FnCallExpr,
     ImportExpr,
+    VarDeclExpr,
 }
 
 File :: []Expr
@@ -424,9 +444,45 @@ parse :: proc(filectx: ^FileContext) -> bool {
         return {path}, true
     }
 
+    parse_stmt :: proc(filectx: ^FileContext) -> (Stmt, bool) {
+        #partial switch tok(filectx).type {
+        case .LIT_STR:
+            return parse_lit_str(filectx)
+        case .LIT_NUMBER:
+            return parse_lit_number(filectx)
+        case .IDENTIFIER:
+            if expr, ok := try_parse_ident(filectx); ok {
+                if it, okk := expr.(FnCallExpr); okk {
+                    return it, true
+                } else {
+                    return nil, false
+                }
+            } else {
+                return nil, false
+            }
+        }
+        return nil, false
+    }
+
+    parse_var_decl_expr :: proc(filectx: ^FileContext) -> (VarDeclExpr, bool) {
+        name := tok(filectx)
+        adv(filectx) // name
+        adv(filectx) // :
+        adv(filectx) // =
+        expr: Stmt
+        if expr_, ok := parse_stmt(filectx); ok {
+            expr = expr_
+        } else {
+            return {}, false
+        }
+        return {name, expr}, true
+    }
+
     try_parse_ident :: proc(filectx: ^FileContext) -> (Expr, bool) {
         if next_two_are(filectx, .COLON, .COLON) {
             return parse_fn_decl_expr(filectx)
+        } else if next_two_are(filectx, .COLON, .EQ) {
+            return parse_var_decl_expr(filectx)
         } else if next_is(filectx, .OPEN_PAREN) {
             return parse_fn_call_expr(filectx)
         } else if tok(filectx).lit in keywords {
@@ -536,6 +592,8 @@ transpile_cpp :: proc(filectx: ^FileContext, transpiler: Transpiler) -> bool {
             transpile_expr(filectx, transpiler, expr)
         }
         decl_write(transpiler, "}}\n")
+
+        filectx.transpiler.functions[expr.name.lit] = {expr.type.lit}
     }
 
     transpile_external_fn_decl :: proc(filectx: ^FileContext, transpiler: Transpiler, expr: ExternalFnExpr) {
@@ -574,6 +632,40 @@ transpile_cpp :: proc(filectx: ^FileContext, transpiler: Transpiler) -> bool {
     transpile_import :: proc(filectx: ^FileContext, transpiler: Transpiler, expr: ImportExpr) {
     }
 
+    try_to_infer :: proc(filectx: ^FileContext, stmt: Stmt) -> string {
+        switch v in stmt {
+        case FnCallExpr:
+            return filectx.transpiler.functions[v.name.lit].type
+        case LiteralExpr:
+            switch v.type {
+            case .STRING:
+                return "cstr"
+            case .NUMBER:
+                // FIXME: Number is hardcoded to int
+                return "int"
+            }
+        }
+        fmt.panicf("adjkas {}", stmt)
+    }
+
+    transpile_stmt :: proc(filectx: ^FileContext, transpiler: Transpiler, stmt: Stmt) {
+        switch v in stmt {
+        case FnCallExpr:
+            transpile_fn_call(filectx, transpiler, v)
+        case LiteralExpr:
+            transpile_lit(filectx, transpiler, v)
+        }
+    }
+
+    transpile_var_decl :: proc(filectx: ^FileContext, transpiler: Transpiler, expr: VarDeclExpr) {
+        // FIXME: assuming always used in declaration
+        type := try_to_infer(filectx, expr.expr)
+        decl_write(transpiler, "{} {} = ", type, expr.name.lit)
+        transpile_stmt(filectx, transpiler, expr.expr)
+        decl_write(transpiler, ";\n")
+    }
+
+
     transpile_expr :: proc(filectx: ^FileContext, transpiler: Transpiler, expr: Expr) {
         switch it in expr {
         case FnDeclExpr:
@@ -586,6 +678,8 @@ transpile_cpp :: proc(filectx: ^FileContext, transpiler: Transpiler) -> bool {
             transpile_lit(filectx, transpiler, it)
         case ImportExpr:
             transpile_import(filectx, transpiler, it)
+        case VarDeclExpr:
+            transpile_var_decl(filectx, transpiler, it)
         }
     }
 
