@@ -43,6 +43,7 @@ TokenType :: enum {
     CLOSE_PAREN,
     COMMA,
     LIT_STR,
+    LIT_NUMBER,
     EOF,
 }
 
@@ -81,6 +82,14 @@ tokenize :: proc(file_context: ^FileContext) -> bool {
     tokenize_str :: proc(file_ctx: ^FileContext, cursor: int) -> int {
         end := cursor
         for !is_eof(file_ctx, end) && file_ctx.file.content[end] != '"' {
+            end += 1
+        }
+        return end
+    }
+
+    tokenize_number :: proc(file_ctx: ^FileContext, cursor: int) -> int {
+        end := cursor
+        for !is_eof(file_ctx, end) && is_digit(file_ctx.file.content[end]) {
             end += 1
         }
         return end
@@ -138,6 +147,11 @@ tokenize :: proc(file_context: ^FileContext) -> bool {
                 start := cursor
                 cursor = tokenize_word(file_context, cursor)
                 append(&tokens, make_token(.IDENTIFIER, start, cursor, col, row, file_context))
+                col += cursor - start
+            } else if is_digit(file_context.file.content[cursor]) {
+                start := cursor
+                cursor = tokenize_number(file_context, cursor)
+                append(&tokens, make_token(.LIT_NUMBER, start, cursor, col, row, file_context))
                 col += cursor - start
             } else {
                 fmt.printfln(
@@ -199,6 +213,7 @@ ExternalFnExpr :: struct {
 
 LitType :: enum {
     STRING,
+    NUMBER,
 }
 
 LiteralExpr :: struct {
@@ -435,12 +450,21 @@ parse :: proc(filectx: ^FileContext) -> bool {
         return {type, lit}, true
     }
 
+    parse_lit_number :: proc(filectx: ^FileContext) -> (LiteralExpr, bool) {
+        type := LitType.NUMBER
+        lit := tok(filectx)
+        adv(filectx)
+        return {type, lit}, true
+    }
+
     parse_expr :: proc(filectx: ^FileContext) -> (Expr, bool) {
         #partial switch tok(filectx).type {
         case .IDENTIFIER:
             return try_parse_ident(filectx)
         case .LIT_STR:
             return parse_lit_str(filectx)
+        case .LIT_NUMBER:
+            return parse_lit_number(filectx)
         case:
             fmt.println("Parser: Invalid or unimplementation token:", tok(filectx).type, tok(filectx).lit)
         }
@@ -539,8 +563,12 @@ transpile_cpp :: proc(filectx: ^FileContext, transpiler: Transpiler) -> bool {
     }
 
     transpile_lit :: proc(filectx: ^FileContext, transpiler: Transpiler, expr: LiteralExpr) {
-        // FIXME: assuming always used in declaration
-        decl_write(transpiler, "\"{}\"", expr.lit.lit)
+        if expr.type == .STRING {
+            // FIXME: assuming always used in declaration
+            decl_write(transpiler, "\"{}\"", expr.lit.lit)
+        } else if expr.type == .NUMBER {
+            decl_write(transpiler, "{}", expr.lit.lit)
+        }
     }
 
     transpile_import :: proc(filectx: ^FileContext, transpiler: Transpiler, expr: ImportExpr) {
@@ -673,13 +701,13 @@ do_all_passes_on_file :: proc(filectx: ^FileContext) -> bool {
     }
 
     if path_no_ext, ok := strings.substring_to(path, strings.last_index(path, ".")); ok {
-        if fd, err := os.open(fmt.tprintf("{}.cpp", path_no_ext), os.O_CREATE | os.O_RDWR | os.O_TRUNC);
-           err == os.ERROR_NONE {
-            os.write_string(fd, strings.to_string(filectx.transpiler.defines))
-            os.write_string(fd, "/* -- Top Level -- */\n")
-            os.write_string(fd, strings.to_string(filectx.transpiler.top_level))
-            os.write_string(fd, "/* -- --------- -- */\n")
-            os.write_string(fd, strings.to_string(filectx.transpiler.decl))
+        source := fmt.tprintf(
+            "{}\n{}\n{}\n",
+            strings.to_string(filectx.transpiler.defines),
+            strings.to_string(filectx.transpiler.top_level),
+            strings.to_string(filectx.transpiler.decl),
+        )
+        if suc := os.write_entire_file(fmt.tprintf("{}.cpp", path_no_ext), transmute([]u8)source); suc {
             fmt.printfln("Transpiled {} to C++ file at: {}", path, fmt.tprintf("{}.cpp", path_no_ext))
             filectx.file.cpp_path = fmt.tprintf("{}.cpp", path_no_ext)
         } else {
