@@ -1,0 +1,6 @@
+import "./std.lang"
+
+main :: void() {
+    puts("Hello World")
+    exit(1)
+}
