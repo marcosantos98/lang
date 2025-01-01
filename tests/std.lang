@@ -1,1 +1,2 @@
 extern "c" puts :: int(str cstr)
+extern "c" exit :: int(code int)
