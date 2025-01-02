@@ -714,7 +714,7 @@ transpile_cpp :: proc(filectx: ^FileContext, transpiler: Transpiler) -> bool {
         }
 
         current_dir := dir(filectx.file.file_path, context.temp_allocator)
-        path := strings.concatenate({current_dir, expr.path.lit})
+        path := strings.concatenate({current_dir, expr.path.lit}, context.temp_allocator)
         path, _ = filepath.from_slash(path, context.temp_allocator)
         if !os.exists(path) {
             fmt.printf("Transpiler: Failed to import file with path `{}`. Doesn't exist.\n", path)
@@ -748,6 +748,10 @@ transpile_cpp :: proc(filectx: ^FileContext, transpiler: Transpiler) -> bool {
             return false
         }
 
+        delete(path_file.transpiler.vars)
+        delete(path_file.transpiler.functions)
+
+
         return true
     }
 
@@ -769,6 +773,9 @@ transpile_cpp :: proc(filectx: ^FileContext, transpiler: Transpiler) -> bool {
         decl_write(transpiler, "int main(int argc, char** argv) {{___entry___();}}")
     }
 
+    delete(filectx.transpiler.vars)
+    delete(filectx.transpiler.functions)
+
     return true
 }
 
@@ -778,11 +785,11 @@ print_usage :: proc() {
     fmt.printfln("Usage: lang <filename>")
 }
 
-do_all_passes_on_file :: proc(filectx: ^FileContext) -> bool {
+do_all_passes_on_file :: proc(filectx: ^FileContext, out := true) -> bool {
 
     path := filectx.file.file_path
 
-    if content, ok := os.read_entire_file(path); ok {
+    if content, ok := os.read_entire_file(path, context.temp_allocator); ok {
         filectx.file.content = content[:]
     } else {
         // do better error printing
@@ -812,25 +819,26 @@ do_all_passes_on_file :: proc(filectx: ^FileContext) -> bool {
         return false
     }
 
-    if path_no_ext, ok := strings.substring_to(path, strings.last_index(path, ".")); ok {
-        source := fmt.tprintf(
-            "{}\n{}\n{}\n",
-            strings.to_string(filectx.transpiler.defines),
-            strings.to_string(filectx.transpiler.top_level),
-            strings.to_string(filectx.transpiler.decl),
-        )
-        if suc := os.write_entire_file(fmt.tprintf("{}.cpp", path_no_ext), transmute([]u8)source); suc {
-            fmt.printfln("Transpiled {} to C++ file at: {}", path, fmt.tprintf("{}.cpp", path_no_ext))
-            filectx.file.cpp_path = fmt.tprintf("{}.cpp", path_no_ext)
+    if out {
+        if path_no_ext, ok := strings.substring_to(path, strings.last_index(path, ".")); ok {
+            source := fmt.tprintf(
+                "{}\n{}\n{}\n",
+                strings.to_string(filectx.transpiler.defines),
+                strings.to_string(filectx.transpiler.top_level),
+                strings.to_string(filectx.transpiler.decl),
+            )
+            if suc := os.write_entire_file(fmt.tprintf("{}.cpp", path_no_ext), transmute([]u8)source); suc {
+                fmt.printfln("Transpiled {} to C++ file at: {}", path, fmt.tprintf("{}.cpp", path_no_ext))
+                filectx.file.cpp_path = fmt.tprintf("{}.cpp", path_no_ext)
+            } else {
+                fmt.printfln("Failed to create output file: {}", fmt.tprintf("{}.cpp", path_no_ext))
+                return false
+            }
         } else {
-            fmt.printfln("Failed to create output file: {}", fmt.tprintf("{}.cpp", path_no_ext))
+            fmt.printfln("Failed while trying to remove extension from path")
             return false
         }
-    } else {
-        fmt.printfln("Failed while trying to remove extension from path")
-        return false
     }
-
     return true
 }
 
@@ -849,4 +857,8 @@ main :: proc() {
     if !do_all_passes_on_file(&filectx) {
         return
     }
+
+    strings.builder_destroy(&filectx.transpiler.defines)
+    strings.builder_destroy(&filectx.transpiler.decl)
+    strings.builder_destroy(&filectx.transpiler.top_level)
 }
