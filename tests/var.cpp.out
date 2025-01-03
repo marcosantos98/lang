@@ -1,0 +1,21 @@
+/* -- Builtin types -- */
+typedef const char* cstr;
+/* -- ------------- -- */
+
+extern "C" int puts(cstr);
+extern "C" int exit(int);
+void thing(bool);
+void ___entry___();
+
+void thing(bool thing){
+exit(thing);
+}
+void ___entry___(){
+int a = 10;
+cstr b = "Hello";
+bool c = true;
+bool d = false;
+puts(b);
+thing(d);
+}
+int main(int argc, char** argv) {___entry___();}
