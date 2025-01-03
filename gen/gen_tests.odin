@@ -7,6 +7,7 @@ import "core:path/filepath"
 import "core:strings"
 
 main :: proc() {
+
     files, _ := filepath.glob("./tests/*.lang", context.temp_allocator)
 
     builder := strings.builder_make()
@@ -26,7 +27,7 @@ main :: proc() {
         strings.write_string(&builder, "@(test)\n")
         fmt.sbprintf(&builder, "translation_{} :: proc(t: ^testing.T) {{\n", s)
         fmt.sbprintf(&builder, "    f := \"{}\"\n", ff)
-        fmt.sbprintf(&builder, "    cpp := \"./tests/{}.cpp\"\n", s)
+        fmt.sbprintf(&builder, "    cpp := \"./tests/{}.cpp.out\"\n", s)
         fmt.sbprintf(
             &builder,
             "    testing.expectf(t, os.exists(cpp), \"{{}} not recorded. {{}} not found\", f, cpp)\n",

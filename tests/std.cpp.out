@@ -1,0 +1,8 @@
+/* -- Builtin types -- */
+typedef const char* cstr;
+/* -- ------------- -- */
+
+extern "C" int puts(cstr);
+extern "C" int exit(int);
+
+
