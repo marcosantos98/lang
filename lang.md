@@ -1,5 +1,23 @@
 # Lang
 
+Number :: 19293823
+Str :: "dasdas"
+Char :: 'c'
+Bool :: true | false
+Ident :: [a-zA-Z_]
+
+Literal :: Number | Str | Char | Bool
+
+Stmt :: Literal | FnCall
+
+FnCall :: Ident "(" [Stmt] ")"
+
+BlockExpr :: "{" Stmt "}"
+FnDeclExpr :: Ident "::" Ident "(" [Ident,Ident]* ")" BlockExpr
+ExternFnDeclExpr :: "extern" Str Ident "::" Ident "(" [Ident Ident]* ")"
+VarDeclExpr :: Ident ":=" Stmt
+ImportExpr :: "import" Str
+
 ## fn
 
 ```
@@ -19,6 +37,7 @@ extern "c" printf :: int(str cstr);
 string -> ""
 char -> ''
 number -> 19382
+bool -> true | false
 ```
 
 ## import

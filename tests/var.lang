@@ -1,10 +1,16 @@
 import "std.lang"
 
+thing :: void(thing bool) {
+    exit(thing)
+}
+
 main :: void() {
     a := 10
     b := "Hello"
+    c := true
+    d := false
     
     puts(b)
 
-    exit(a)
+    thing(d)
 }
