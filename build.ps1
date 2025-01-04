@@ -23,6 +23,7 @@ if ( $args[0] -eq "rec") {
     $release = $false
     $show_timings = $true
     $trace = $false
+    #$trace = $true
     $flags = "-warnings-as-errors -vet-unused -vet-shadowing -vet-packages:main"
     if ($show_timings -eq $true) {
     	$flags += " -show-timings"
