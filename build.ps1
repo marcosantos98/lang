@@ -22,12 +22,16 @@ if ( $args[0] -eq "rec") {
 } else {
     $release = $false
     $show_timings = $true
+    $trace = $false
     $flags = "-warnings-as-errors -vet-unused -vet-shadowing -vet-packages:main"
     if ($show_timings -eq $true) {
     	$flags += " -show-timings"
     }
     if ($release -eq $false) {
     	$flags += " -debug"
+    }
+    if ($trace -eq $true) {
+	$flags += " -define=trace=true"
     }
     
     Write-Host "Options:" -ForegroundColor Magenta
