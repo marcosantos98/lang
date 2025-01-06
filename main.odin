@@ -339,6 +339,7 @@ IfStmt :: struct {
     using stmt: Statement,
     cond:       ^Expr,
     block:      ^BlockStmt,
+    else_:      ^Statement,
 }
 
 WhileStmt :: struct {
@@ -659,10 +660,33 @@ parse_if_stmt :: proc(filectx: ^FileContext) -> (^AstNode, bool) {
         return nil, false
     }
 
+    else_: ^Statement = nil
+    if tok_is_keyword(filectx, .ELSE) {
+        adv(filectx) // else
+        if tok_is_keyword(filectx, .IF) {
+            if stmt, ok := parse_if_stmt(filectx); ok {
+                else_ = stmt.as.(^IfStmt)
+            } else {
+                fmt.println("Failed to parse branch at", tokloc(filectx))
+                return nil, false
+            }
+        } else if tok(filectx).type == .OPEN_CBRACKET {
+            if stmt, ok := parse_block_stmt(filectx); ok {
+                else_ = stmt
+            } else {
+                fmt.println("Failed to parse else if body")
+                return nil, false
+            }
+        } else {
+            fmt.panicf("Failed {}", tok(filectx))
+        }
+    }
+
     node := newnode(IfStmt)
     node.as_stmt = node
     node.cond = cond
     node.block = block
+    node.else_ = else_
 
     return node, true
 }
@@ -836,6 +860,9 @@ try_parse_identifier :: proc(filectx: ^FileContext) -> (^AstNode, bool) {
             return parse_for_stmt(filectx)
         case .BREAK:
             return parse_break_stmt(filectx)
+        case .ELSE:
+            fmt.println("Invalid token:", tok(filectx).lit)
+            return nil, false
         }
     } else {
         #partial switch filectx.tokens[filectx.cursor + 1].type {
@@ -982,6 +1009,7 @@ Keywords :: enum {
     WHILE,
     FOR,
     BREAK,
+    ELSE,
 }
 
 keywords := map[string]Keywords {
@@ -993,6 +1021,7 @@ keywords := map[string]Keywords {
     "while"  = .WHILE,
     "for"    = .FOR,
     "break"  = .BREAK,
+    "else"   = .ELSE,
 }
 // ;parser
 
@@ -1133,6 +1162,10 @@ transpile_cpp :: proc(filectx: ^FileContext, transpiler: Transpiler) -> bool {
         transpile_expr(filectx, transpiler, stmt.cond)
         decl_write(transpiler, ")")
         transpile_block_stmt(filectx, transpiler, stmt.block)
+        if stmt.else_ != nil {
+            decl_write(transpiler, " else ")
+            transpile_stmt(filectx, transpiler, stmt.else_)
+        }
     }
 
     transpile_while_stmt :: proc(filectx: ^FileContext, transpiler: Transpiler, stmt: ^WhileStmt) {
