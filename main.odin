@@ -50,6 +50,8 @@ TokenType :: enum {
     LIT_STR,
     LIT_NUMBER,
     PLUS,
+    PLUS_EQ,
+    MINUS_EQ,
     MINUS,
     MULT,
     DIV,
@@ -155,9 +157,15 @@ tokenize :: proc(file_context: ^FileContext) -> bool {
             col += 1
             cursor += 1
         case '-':
-            append(&tokens, make_token(.MINUS, cursor, cursor + 1, col, row, file_context))
-            col += 1
-            cursor += 1
+            if file_context.file.content[cursor + 1] == '=' {
+                append(&tokens, make_token(.MINUS_EQ, cursor, cursor + 2, col, row, file_context))
+                col += 2
+                cursor += 2
+            } else {
+                append(&tokens, make_token(.MINUS, cursor, cursor + 1, col, row, file_context))
+                col += 1
+                cursor += 1
+            }
         case '*':
             append(&tokens, make_token(.MULT, cursor, cursor + 1, col, row, file_context))
             col += 1
@@ -167,9 +175,15 @@ tokenize :: proc(file_context: ^FileContext) -> bool {
             col += 1
             cursor += 1
         case '+':
-            append(&tokens, make_token(.PLUS, cursor, cursor + 1, col, row, file_context))
-            col += 1
-            cursor += 1
+            if file_context.file.content[cursor + 1] == '=' {
+                append(&tokens, make_token(.PLUS_EQ, cursor, cursor + 2, col, row, file_context))
+                col += 2
+                cursor += 2
+            } else {
+                append(&tokens, make_token(.PLUS, cursor, cursor + 1, col, row, file_context))
+                col += 1
+                cursor += 1
+            }
         case '<':
             append(&tokens, make_token(.LT, cursor, cursor + 1, col, row, file_context))
             col += 1
@@ -239,6 +253,7 @@ NodeType :: union {
     ^ExprStmt,
     ^IfStmt,
     ^WhileStmt,
+    ^AssignStmt,
 
     //
     ^VarExpr,
@@ -251,6 +266,12 @@ Expr :: struct {
     using base: Statement,
     as_expr:    ExprType,
 }
+
+AssignFlag :: enum {
+    PLUS,
+    MINUS,
+}
+
 
 BinaryExpr :: struct {
     using expr: Expr,
@@ -290,6 +311,14 @@ StmtType :: union {
     ^ExprStmt,
     ^IfStmt,
     ^WhileStmt,
+    ^AssignStmt,
+}
+
+AssignStmt :: struct {
+    using stmt: Statement,
+    who:        Token,
+    expr:       ^Expr,
+    flags:      bit_set[AssignFlag],
 }
 
 IfStmt :: struct {
@@ -650,6 +679,39 @@ parse_while_stmt :: proc(filectx: ^FileContext) -> (^AstNode, bool) {
     return node, true
 }
 
+parse_assign_stmt :: proc(filectx: ^FileContext) -> (^AstNode, bool) {
+
+    who := tok(filectx)
+    adv(filectx) // who
+
+    flags := bit_set[AssignFlag]{}
+
+    #partial switch tok(filectx).type {
+    case .PLUS_EQ:
+        flags += {.PLUS}
+    case .MINUS_EQ:
+        flags += {.MINUS}
+    }
+
+    adv(filectx) // = / += / -=
+
+    expr: ^Expr
+    if expr_, ok := int_parse(filectx); ok {
+        expr = expr_.as.(^ExprStmt).expr
+    } else {
+        fmt.println("Failed to parse assign expression")
+        return nil, false
+    }
+
+    node := newnode(AssignStmt)
+    node.as_stmt = node
+    node.flags = flags
+    node.who = who
+    node.expr = expr
+
+    return node, true
+}
+
 try_parse_identifier :: proc(filectx: ^FileContext) -> (^AstNode, bool) {
     if next_two_are(filectx, .COLON, .COLON) {
         return parse_fn_decl_stmt(filectx)
@@ -671,7 +733,12 @@ try_parse_identifier :: proc(filectx: ^FileContext) -> (^AstNode, bool) {
             return parse_while_stmt(filectx)
         }
     } else {
-        return parse_var_expr(filectx)
+        #partial switch filectx.tokens[filectx.cursor + 1].type {
+        case .EQ, .PLUS_EQ, .MINUS_EQ:
+            return parse_assign_stmt(filectx)
+        case:
+            return parse_var_expr(filectx)
+        }
     }
     return nil, false
 }
@@ -964,6 +1031,18 @@ transpile_cpp :: proc(filectx: ^FileContext, transpiler: Transpiler) -> bool {
         transpile_block_stmt(filectx, transpiler, stmt.block)
     }
 
+    transpile_assign_stmt :: proc(filectx: ^FileContext, transpiler: Transpiler, stmt: ^AssignStmt) {
+        decl_write(transpiler, "{} ", stmt.who.lit)
+        if AssignFlag.PLUS in stmt.flags {
+            decl_write(transpiler, "+= ")
+        } else if AssignFlag.MINUS in stmt.flags {
+            decl_write(transpiler, "-= ")
+        } else {
+            decl_write(transpiler, "= ")
+        }
+        transpile_expr(filectx, transpiler, stmt.expr)
+        decl_write(transpiler, ";\n")
+    }
 
     transpile_stmt :: proc(filectx: ^FileContext, transpiler: Transpiler, stmt: ^Statement) {
         switch it in stmt.as_stmt {
@@ -981,6 +1060,8 @@ transpile_cpp :: proc(filectx: ^FileContext, transpiler: Transpiler) -> bool {
             transpile_if_stmt(filectx, transpiler, it)
         case ^WhileStmt:
             transpile_while_stmt(filectx, transpiler, it)
+        case ^AssignStmt:
+            transpile_assign_stmt(filectx, transpiler, it)
         }
     }
 
