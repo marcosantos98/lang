@@ -261,6 +261,7 @@ NodeType :: union {
     ^WhileStmt,
     ^AssignStmt,
     ^ForStmt,
+    ^BreakStmt,
 
     //
     ^VarExpr,
@@ -279,7 +280,6 @@ AssignFlag :: enum {
     MINUS,
 }
 
-
 BinaryExpr :: struct {
     using expr: Expr,
     operator:   Token,
@@ -291,6 +291,7 @@ VarExpr :: struct {
     using expr: Expr,
     name:       Token,
 }
+
 
 FnCallExpr :: struct {
     using expr: Expr,
@@ -320,6 +321,11 @@ StmtType :: union {
     ^WhileStmt,
     ^AssignStmt,
     ^ForStmt,
+    ^BreakStmt,
+}
+
+BreakStmt :: struct {
+    using expr: Expr,
 }
 
 AssignStmt :: struct {
@@ -798,7 +804,16 @@ parse_for_stmt :: proc(filectx: ^FileContext) -> (^AstNode, bool) {
     return node, true
 }
 
+parse_break_stmt :: proc(filectx: ^FileContext) -> (^AstNode, bool) {
+    trace("BreakStmt")
+    adv(filectx) // break
+    node := newnode(BreakStmt)
+    node.as_stmt = node
+    return node, true
+}
+
 try_parse_identifier :: proc(filectx: ^FileContext) -> (^AstNode, bool) {
+    trace("ParseIdentifier: ({})", tok(filectx).lit)
     if next_two_are(filectx, .COLON, .COLON) {
         return parse_fn_decl_stmt(filectx)
     } else if next_is(filectx, .OPEN_PAREN) {
@@ -819,6 +834,8 @@ try_parse_identifier :: proc(filectx: ^FileContext) -> (^AstNode, bool) {
             return parse_while_stmt(filectx)
         case .FOR:
             return parse_for_stmt(filectx)
+        case .BREAK:
+            return parse_break_stmt(filectx)
         }
     } else {
         #partial switch filectx.tokens[filectx.cursor + 1].type {
@@ -964,6 +981,7 @@ Keywords :: enum {
     FALSE,
     WHILE,
     FOR,
+    BREAK,
 }
 
 keywords := map[string]Keywords {
@@ -974,6 +992,7 @@ keywords := map[string]Keywords {
     "false"  = .FALSE,
     "while"  = .WHILE,
     "for"    = .FOR,
+    "break"  = .BREAK,
 }
 // ;parser
 
@@ -1151,6 +1170,10 @@ transpile_cpp :: proc(filectx: ^FileContext, transpiler: Transpiler) -> bool {
         transpile_block_stmt(filectx, transpiler, stmt.block)
     }
 
+    transpile_break_stmt :: proc(filectx: ^FileContext, transpiler: Transpiler, stmt: ^BreakStmt) {
+        decl_write(transpiler, "break;\n")
+    }
+
     transpile_stmt :: proc(filectx: ^FileContext, transpiler: Transpiler, stmt: ^Statement) {
         switch it in stmt.as_stmt {
         case ^FnDeclStmt:
@@ -1171,6 +1194,8 @@ transpile_cpp :: proc(filectx: ^FileContext, transpiler: Transpiler) -> bool {
             transpile_assign_stmt(filectx, transpiler, it)
         case ^ForStmt:
             transpile_for_stmt(filectx, transpiler, it)
+        case ^BreakStmt:
+            transpile_break_stmt(filectx, transpiler, it)
         }
     }
 
