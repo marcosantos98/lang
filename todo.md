@@ -1,5 +1,6 @@
 - Improve error handling. Currently I'm using runtime asserts.
-- Different type for Statment vs Expr.
 - Package definitions to help with transpile. add package name to begin of each module declaration
 - Currently the extern libname isnt used at all
-- Handle empty blocks
+- Add positions to expressions?
+- Allow empty init/cond/post in for loop statement
+- Single token expression should be placed into a single statement

@@ -15,14 +15,15 @@ FileContext :: struct {
     tokens:     []Token,
     ast:        []^AstNode,
     transpiler: struct {
-        has_main:  bool,
-        defines:   strings.Builder,
-        decl:      strings.Builder,
-        top_level: strings.Builder,
-        functions: map[string]struct {
+        has_main:      bool,
+        defines:       strings.Builder,
+        decl:          strings.Builder,
+        top_level:     strings.Builder,
+        functions:     map[string]struct {
             type: string,
         },
-        vars:      map[string]string,
+        vars:          map[string]string,
+        add_semicolon: bool,
     },
     file:       struct {
         file_path: string,
@@ -42,6 +43,7 @@ ctx := LangCtx{}
 TokenType :: enum {
     IDENTIFIER,
     COLON,
+    SEMICOLON,
     OPEN_CBRACKET,
     CLOSE_CBRACKET,
     OPEN_PAREN,
@@ -50,6 +52,8 @@ TokenType :: enum {
     LIT_STR,
     LIT_NUMBER,
     PLUS,
+    PLUS_EQ,
+    MINUS_EQ,
     MINUS,
     MULT,
     DIV,
@@ -130,6 +134,10 @@ tokenize :: proc(file_context: ^FileContext) -> bool {
             append(&tokens, make_token(.COLON, cursor, cursor + 1, col, row, file_context))
             col += 1
             cursor += 1
+        case ';':
+            append(&tokens, make_token(.SEMICOLON, cursor, cursor + 1, col, row, file_context))
+            col += 1
+            cursor += 1
         case '{':
             append(&tokens, make_token(.OPEN_CBRACKET, cursor, cursor + 1, col, row, file_context))
             col += 1
@@ -155,9 +163,15 @@ tokenize :: proc(file_context: ^FileContext) -> bool {
             col += 1
             cursor += 1
         case '-':
-            append(&tokens, make_token(.MINUS, cursor, cursor + 1, col, row, file_context))
-            col += 1
-            cursor += 1
+            if file_context.file.content[cursor + 1] == '=' {
+                append(&tokens, make_token(.MINUS_EQ, cursor, cursor + 2, col, row, file_context))
+                col += 2
+                cursor += 2
+            } else {
+                append(&tokens, make_token(.MINUS, cursor, cursor + 1, col, row, file_context))
+                col += 1
+                cursor += 1
+            }
         case '*':
             append(&tokens, make_token(.MULT, cursor, cursor + 1, col, row, file_context))
             col += 1
@@ -167,9 +181,15 @@ tokenize :: proc(file_context: ^FileContext) -> bool {
             col += 1
             cursor += 1
         case '+':
-            append(&tokens, make_token(.PLUS, cursor, cursor + 1, col, row, file_context))
-            col += 1
-            cursor += 1
+            if file_context.file.content[cursor + 1] == '=' {
+                append(&tokens, make_token(.PLUS_EQ, cursor, cursor + 2, col, row, file_context))
+                col += 2
+                cursor += 2
+            } else {
+                append(&tokens, make_token(.PLUS, cursor, cursor + 1, col, row, file_context))
+                col += 1
+                cursor += 1
+            }
         case '<':
             append(&tokens, make_token(.LT, cursor, cursor + 1, col, row, file_context))
             col += 1
@@ -237,6 +257,11 @@ NodeType :: union {
     ^VarDeclStmt,
     ^BlockStmt,
     ^ExprStmt,
+    ^IfStmt,
+    ^WhileStmt,
+    ^AssignStmt,
+    ^ForStmt,
+    ^BreakStmt,
 
     //
     ^VarExpr,
@@ -250,6 +275,11 @@ Expr :: struct {
     as_expr:    ExprType,
 }
 
+AssignFlag :: enum {
+    PLUS,
+    MINUS,
+}
+
 BinaryExpr :: struct {
     using expr: Expr,
     operator:   Token,
@@ -261,6 +291,7 @@ VarExpr :: struct {
     using expr: Expr,
     name:       Token,
 }
+
 
 FnCallExpr :: struct {
     using expr: Expr,
@@ -286,11 +317,48 @@ StmtType :: union {
     ^BlockStmt,
     ^VarDeclStmt,
     ^ExprStmt,
+    ^IfStmt,
+    ^WhileStmt,
+    ^AssignStmt,
+    ^ForStmt,
+    ^BreakStmt,
+}
+
+BreakStmt :: struct {
+    using expr: Expr,
+}
+
+AssignStmt :: struct {
+    using stmt: Statement,
+    who:        Token,
+    expr:       ^Expr,
+    flags:      bit_set[AssignFlag],
+}
+
+IfStmt :: struct {
+    using stmt: Statement,
+    cond:       ^Expr,
+    block:      ^BlockStmt,
+    else_:      ^Statement,
+}
+
+WhileStmt :: struct {
+    using stmt: Statement,
+    cond:       ^Expr,
+    block:      ^BlockStmt,
 }
 
 ExprStmt :: struct {
     using _: Statement,
     expr:    ^Expr,
+}
+
+ForStmt :: struct {
+    using _: Statement,
+    init:    ^Statement,
+    cond:    ^Expr,
+    post:    ^Statement,
+    block:   ^BlockStmt,
 }
 
 FnFlags :: enum {
@@ -566,19 +634,243 @@ parse_var_expr :: proc(filectx: ^FileContext) -> (^AstNode, bool) {
     return newstmtnode(node), true
 }
 
+parse_if_stmt :: proc(filectx: ^FileContext) -> (^AstNode, bool) {
+    adv(filectx) // if
+
+    cond: ^Expr
+    if cond_, ok := int_parse(filectx); ok {
+        cond = cond_.as.(^ExprStmt).expr
+    } else {
+        fmt.println("Failed to parse if condition")
+        return nil, false
+    }
+
+    fmt.assertf(
+        tok(filectx).type == .OPEN_CBRACKET,
+        "Parser: {} expected `{{` after `if` condition, but found {}",
+        tokloc(filectx),
+        tok(filectx).lit,
+    )
+
+    block: ^BlockStmt
+    if block_, ok := parse_block_stmt(filectx); ok {
+        block = block_
+    } else {
+        fmt.println("Failed to parse if block")
+        return nil, false
+    }
+
+    else_: ^Statement = nil
+    if tok_is_keyword(filectx, .ELSE) {
+        adv(filectx) // else
+        if tok_is_keyword(filectx, .IF) {
+            if stmt, ok := parse_if_stmt(filectx); ok {
+                else_ = stmt.as.(^IfStmt)
+            } else {
+                fmt.println("Failed to parse branch at", tokloc(filectx))
+                return nil, false
+            }
+        } else if tok(filectx).type == .OPEN_CBRACKET {
+            if stmt, ok := parse_block_stmt(filectx); ok {
+                else_ = stmt
+            } else {
+                fmt.println("Failed to parse else if body")
+                return nil, false
+            }
+        } else {
+            fmt.panicf("Failed {}", tok(filectx))
+        }
+    }
+
+    node := newnode(IfStmt)
+    node.as_stmt = node
+    node.cond = cond
+    node.block = block
+    node.else_ = else_
+
+    return node, true
+}
+
+parse_while_stmt :: proc(filectx: ^FileContext) -> (^AstNode, bool) {
+    adv(filectx) // while
+
+    cond: ^Expr
+    if cond_, ok := int_parse(filectx); ok {
+        cond = cond_.as.(^ExprStmt).expr
+    } else {
+        fmt.println("Failed to parse while condition")
+        return nil, false
+    }
+
+    fmt.assertf(
+        tok(filectx).type == .OPEN_CBRACKET,
+        "Parser: {} expected `{{` after `while` condition, but found {}",
+        tokloc(filectx),
+        tok(filectx).lit,
+    )
+
+    block: ^BlockStmt
+    if block_, ok := parse_block_stmt(filectx); ok {
+        block = block_
+    } else {
+        fmt.println("Failed to parse if block")
+        return nil, false
+    }
+
+    node := newnode(WhileStmt)
+    node.as_stmt = node
+    node.block = block
+    node.cond = cond
+
+    return node, true
+}
+
+parse_assign_stmt :: proc(filectx: ^FileContext) -> (^AstNode, bool) {
+
+    who := tok(filectx)
+    adv(filectx) // who
+
+    flags := bit_set[AssignFlag]{}
+
+    #partial switch tok(filectx).type {
+    case .PLUS_EQ:
+        flags += {.PLUS}
+    case .MINUS_EQ:
+        flags += {.MINUS}
+    }
+
+    adv(filectx) // = / += / -=
+
+    expr: ^Expr
+    if expr_, ok := int_parse(filectx); ok {
+        expr = expr_.as.(^ExprStmt).expr
+    } else {
+        fmt.println("Failed to parse assign expression")
+        return nil, false
+    }
+
+    node := newnode(AssignStmt)
+    node.as_stmt = node
+    node.flags = flags
+    node.who = who
+    node.expr = expr
+
+    return node, true
+}
+
+parse_for_stmt :: proc(filectx: ^FileContext) -> (^AstNode, bool) {
+    adv(filectx) // for
+
+    init: ^Statement
+    if init_, ok := int_parse(filectx); ok {
+        init = cast(^Statement)init_
+    } else {
+        fmt.println("Failed to parse for init statement.")
+        return nil, false
+    }
+
+    fmt.assertf(
+        tok(filectx).type == .SEMICOLON,
+        "Parser: {} expected `;` after `for` init, but found {}",
+        tokloc(filectx),
+        tok(filectx).lit,
+    )
+
+    adv(filectx) // ;
+
+    cond: ^Expr
+    if cond_, ok := int_parse(filectx); ok {
+        cond = cond_.as.(^ExprStmt).expr
+    } else {
+        fmt.println("Failed to parse for condition")
+        return nil, false
+    }
+
+    fmt.assertf(
+        tok(filectx).type == .SEMICOLON,
+        "Parser: {} expected `;` after `for` condition, but found {}",
+        tokloc(filectx),
+        tok(filectx).lit,
+    )
+
+    adv(filectx) // ;
+
+    post: ^Statement
+    if post_, ok := int_parse(filectx); ok {
+        post = cast(^Statement)post_
+    } else {
+        fmt.println("Failed to parse for post statement.")
+        return nil, false
+    }
+
+    fmt.assertf(
+        tok(filectx).type == .OPEN_CBRACKET,
+        "Parser: {} expected `{{` after `if` condition, but found {}",
+        tokloc(filectx),
+        tok(filectx).lit,
+    )
+
+    block: ^BlockStmt
+    if block_, ok := parse_block_stmt(filectx); ok {
+        block = block_
+    } else {
+        fmt.println("Failed to parse for block")
+        return nil, false
+    }
+
+    node := newnode(ForStmt)
+    node.as_stmt = node
+    node.init = init
+    node.cond = cond
+    node.post = post
+    node.block = block
+
+    return node, true
+}
+
+parse_break_stmt :: proc(filectx: ^FileContext) -> (^AstNode, bool) {
+    trace("BreakStmt")
+    adv(filectx) // break
+    node := newnode(BreakStmt)
+    node.as_stmt = node
+    return node, true
+}
+
 try_parse_identifier :: proc(filectx: ^FileContext) -> (^AstNode, bool) {
-    if next_two_are(filectx, .COLON, .COLON) || tok_is_keyword(filectx, .EXTERNAL) {
+    trace("ParseIdentifier: ({})", tok(filectx).lit)
+    if next_two_are(filectx, .COLON, .COLON) {
         return parse_fn_decl_stmt(filectx)
-    } else if tok_lit_is(filectx, "true") || tok_lit_is(filectx, "false") {
-        return parse_lit_bool(filectx)
-    } else if tok_is_keyword(filectx, .IMPORT) {
-        return parse_import_stmt(filectx)
     } else if next_is(filectx, .OPEN_PAREN) {
         return parse_fn_call_expr(filectx)
     } else if next_two_are(filectx, .COLON, .EQ) {
         return parse_var_decl_stmt(filectx)
+    } else if tok(filectx).lit in keywords {
+        switch keywords[tok(filectx).lit] {
+        case .EXTERNAL:
+            return parse_fn_decl_stmt(filectx)
+        case .IMPORT:
+            return parse_import_stmt(filectx)
+        case .IF:
+            return parse_if_stmt(filectx)
+        case .TRUE, .FALSE:
+            return parse_lit_bool(filectx)
+        case .WHILE:
+            return parse_while_stmt(filectx)
+        case .FOR:
+            return parse_for_stmt(filectx)
+        case .BREAK:
+            return parse_break_stmt(filectx)
+        case .ELSE:
+            fmt.println("Invalid token:", tok(filectx).lit)
+            return nil, false
+        }
     } else {
-        return parse_var_expr(filectx)
+        #partial switch filectx.tokens[filectx.cursor + 1].type {
+        case .EQ, .PLUS_EQ, .MINUS_EQ:
+            return parse_assign_stmt(filectx)
+        case:
+            return parse_var_expr(filectx)
+        }
     }
     return nil, false
 }
@@ -711,11 +1003,25 @@ parse :: proc(filectx: ^FileContext) -> bool {
 Keywords :: enum {
     EXTERNAL,
     IMPORT,
+    IF,
+    TRUE,
+    FALSE,
+    WHILE,
+    FOR,
+    BREAK,
+    ELSE,
 }
 
 keywords := map[string]Keywords {
     "extern" = .EXTERNAL,
     "import" = .IMPORT,
+    "if"     = .IF,
+    "true"   = .TRUE,
+    "false"  = .FALSE,
+    "while"  = .WHILE,
+    "for"    = .FOR,
+    "break"  = .BREAK,
+    "else"   = .ELSE,
 }
 // ;parser
 
@@ -726,6 +1032,8 @@ Transpiler :: struct {
 }
 
 transpile_cpp :: proc(filectx: ^FileContext, transpiler: Transpiler) -> bool {
+
+    filectx.transpiler.add_semicolon = true
 
     decl_write :: proc(transpiler: Transpiler, fmt_: string, args: ..any, newline_ := false) {
         fmt.sbprintf(transpiler.decl, fmt_, ..args, newline = newline_)
@@ -849,6 +1157,56 @@ transpile_cpp :: proc(filectx: ^FileContext, transpiler: Transpiler) -> bool {
         decl_write(transpiler, "}}\n")
     }
 
+    transpile_if_stmt :: proc(filectx: ^FileContext, transpiler: Transpiler, stmt: ^IfStmt) {
+        decl_write(transpiler, "if (")
+        transpile_expr(filectx, transpiler, stmt.cond)
+        decl_write(transpiler, ")")
+        transpile_block_stmt(filectx, transpiler, stmt.block)
+        if stmt.else_ != nil {
+            decl_write(transpiler, " else ")
+            transpile_stmt(filectx, transpiler, stmt.else_)
+        }
+    }
+
+    transpile_while_stmt :: proc(filectx: ^FileContext, transpiler: Transpiler, stmt: ^WhileStmt) {
+        decl_write(transpiler, "while (")
+        transpile_expr(filectx, transpiler, stmt.cond)
+        decl_write(transpiler, ")")
+        transpile_block_stmt(filectx, transpiler, stmt.block)
+    }
+
+    transpile_assign_stmt :: proc(filectx: ^FileContext, transpiler: Transpiler, stmt: ^AssignStmt) {
+        decl_write(transpiler, "{} ", stmt.who.lit)
+        if AssignFlag.PLUS in stmt.flags {
+            decl_write(transpiler, "+= ")
+        } else if AssignFlag.MINUS in stmt.flags {
+            decl_write(transpiler, "-= ")
+        } else {
+            decl_write(transpiler, "= ")
+        }
+        transpile_expr(filectx, transpiler, stmt.expr)
+        if filectx.transpiler.add_semicolon {
+            decl_write(transpiler, ";\n")
+        }
+    }
+
+    transpile_for_stmt :: proc(filectx: ^FileContext, transpiler: Transpiler, stmt: ^ForStmt) {
+        filectx.transpiler.add_semicolon = false
+        decl_write(transpiler, "for(")
+        transpile_stmt(filectx, transpiler, stmt.init)
+        decl_write(transpiler, ";")
+        transpile_expr(filectx, transpiler, stmt.cond)
+        decl_write(transpiler, ";")
+        transpile_stmt(filectx, transpiler, stmt.post)
+        decl_write(transpiler, ")")
+        filectx.transpiler.add_semicolon = true
+        transpile_block_stmt(filectx, transpiler, stmt.block)
+    }
+
+    transpile_break_stmt :: proc(filectx: ^FileContext, transpiler: Transpiler, stmt: ^BreakStmt) {
+        decl_write(transpiler, "break;\n")
+    }
+
     transpile_stmt :: proc(filectx: ^FileContext, transpiler: Transpiler, stmt: ^Statement) {
         switch it in stmt.as_stmt {
         case ^FnDeclStmt:
@@ -861,6 +1219,16 @@ transpile_cpp :: proc(filectx: ^FileContext, transpiler: Transpiler) -> bool {
             transpile_var_decl_stmt(filectx, transpiler, it)
         case ^ExprStmt:
             transpile_expr(filectx, transpiler, it.expr)
+        case ^IfStmt:
+            transpile_if_stmt(filectx, transpiler, it)
+        case ^WhileStmt:
+            transpile_while_stmt(filectx, transpiler, it)
+        case ^AssignStmt:
+            transpile_assign_stmt(filectx, transpiler, it)
+        case ^ForStmt:
+            transpile_for_stmt(filectx, transpiler, it)
+        case ^BreakStmt:
+            transpile_break_stmt(filectx, transpiler, it)
         }
     }
 
@@ -881,7 +1249,9 @@ transpile_cpp :: proc(filectx: ^FileContext, transpiler: Transpiler) -> bool {
         }
         decl_write(transpiler, "{} {} = ", type, expr.name.lit)
         transpile_expr(filectx, transpiler, expr.expr)
-        decl_write(transpiler, ";\n")
+        if filectx.transpiler.add_semicolon {
+            decl_write(transpiler, ";\n")
+        }
 
         filectx.transpiler.vars[expr.name.lit] = type
     }
