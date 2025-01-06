@@ -237,6 +237,7 @@ NodeType :: union {
     ^VarDeclStmt,
     ^BlockStmt,
     ^ExprStmt,
+    ^IfStmt,
 
     //
     ^VarExpr,
@@ -286,6 +287,13 @@ StmtType :: union {
     ^BlockStmt,
     ^VarDeclStmt,
     ^ExprStmt,
+    ^IfStmt,
+}
+
+IfStmt :: struct {
+    using stmt: Statement,
+    cond:       ^Expr,
+    block:      ^BlockStmt,
 }
 
 ExprStmt :: struct {
@@ -566,17 +574,58 @@ parse_var_expr :: proc(filectx: ^FileContext) -> (^AstNode, bool) {
     return newstmtnode(node), true
 }
 
+parse_if_stmt :: proc(filectx: ^FileContext) -> (^AstNode, bool) {
+    adv(filectx) // if
+
+    cond: ^Expr
+    if cond_, ok := int_parse(filectx); ok {
+        cond = cond_.as.(^ExprStmt).expr
+    } else {
+        fmt.println("Failed to parse if condition")
+        return nil, false
+    }
+
+    fmt.assertf(
+        tok(filectx).type == .OPEN_CBRACKET,
+        "Parser: {} expected `{{` after `if` condition, but found {}",
+        tokloc(filectx),
+        tok(filectx).lit,
+    )
+
+    block: ^BlockStmt
+    if block_, ok := parse_block_stmt(filectx); ok {
+        block = block_
+    } else {
+        fmt.println("Failed to parse if block")
+        return nil, false
+    }
+
+    node := newnode(IfStmt)
+    node.as_stmt = node
+    node.cond = cond
+    node.block = block
+
+    return node, true
+}
+
 try_parse_identifier :: proc(filectx: ^FileContext) -> (^AstNode, bool) {
-    if next_two_are(filectx, .COLON, .COLON) || tok_is_keyword(filectx, .EXTERNAL) {
+    if next_two_are(filectx, .COLON, .COLON) {
         return parse_fn_decl_stmt(filectx)
-    } else if tok_lit_is(filectx, "true") || tok_lit_is(filectx, "false") {
-        return parse_lit_bool(filectx)
-    } else if tok_is_keyword(filectx, .IMPORT) {
-        return parse_import_stmt(filectx)
     } else if next_is(filectx, .OPEN_PAREN) {
         return parse_fn_call_expr(filectx)
     } else if next_two_are(filectx, .COLON, .EQ) {
         return parse_var_decl_stmt(filectx)
+    } else if tok(filectx).lit in keywords {
+        switch keywords[tok(filectx).lit] {
+        case .EXTERNAL:
+            return parse_fn_decl_stmt(filectx)
+        case .IMPORT:
+            return parse_import_stmt(filectx)
+        case .IF:
+            return parse_if_stmt(filectx)
+        case .TRUE, .FALSE:
+            return parse_lit_bool(filectx)
+        }
     } else {
         return parse_var_expr(filectx)
     }
@@ -711,11 +760,17 @@ parse :: proc(filectx: ^FileContext) -> bool {
 Keywords :: enum {
     EXTERNAL,
     IMPORT,
+    IF,
+    TRUE,
+    FALSE,
 }
 
 keywords := map[string]Keywords {
     "extern" = .EXTERNAL,
     "import" = .IMPORT,
+    "if"     = .IF,
+    "true"   = .TRUE,
+    "false"  = .FALSE,
 }
 // ;parser
 
@@ -849,6 +904,13 @@ transpile_cpp :: proc(filectx: ^FileContext, transpiler: Transpiler) -> bool {
         decl_write(transpiler, "}}\n")
     }
 
+    transpile_if_stmt :: proc(filectx: ^FileContext, transpiler: Transpiler, stmt: ^IfStmt) {
+        decl_write(transpiler, "if (")
+        transpile_expr(filectx, transpiler, stmt.cond)
+        decl_write(transpiler, ")")
+        transpile_block_stmt(filectx, transpiler, stmt.block)
+    }
+
     transpile_stmt :: proc(filectx: ^FileContext, transpiler: Transpiler, stmt: ^Statement) {
         switch it in stmt.as_stmt {
         case ^FnDeclStmt:
@@ -861,6 +923,8 @@ transpile_cpp :: proc(filectx: ^FileContext, transpiler: Transpiler) -> bool {
             transpile_var_decl_stmt(filectx, transpiler, it)
         case ^ExprStmt:
             transpile_expr(filectx, transpiler, it.expr)
+        case ^IfStmt:
+            transpile_if_stmt(filectx, transpiler, it)
         }
     }
 
