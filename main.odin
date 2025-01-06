@@ -15,14 +15,15 @@ FileContext :: struct {
     tokens:     []Token,
     ast:        []^AstNode,
     transpiler: struct {
-        has_main:  bool,
-        defines:   strings.Builder,
-        decl:      strings.Builder,
-        top_level: strings.Builder,
-        functions: map[string]struct {
+        has_main:      bool,
+        defines:       strings.Builder,
+        decl:          strings.Builder,
+        top_level:     strings.Builder,
+        functions:     map[string]struct {
             type: string,
         },
-        vars:      map[string]string,
+        vars:          map[string]string,
+        add_semicolon: bool,
     },
     file:       struct {
         file_path: string,
@@ -42,6 +43,7 @@ ctx := LangCtx{}
 TokenType :: enum {
     IDENTIFIER,
     COLON,
+    SEMICOLON,
     OPEN_CBRACKET,
     CLOSE_CBRACKET,
     OPEN_PAREN,
@@ -130,6 +132,10 @@ tokenize :: proc(file_context: ^FileContext) -> bool {
             cursor += 1
         case ':':
             append(&tokens, make_token(.COLON, cursor, cursor + 1, col, row, file_context))
+            col += 1
+            cursor += 1
+        case ';':
+            append(&tokens, make_token(.SEMICOLON, cursor, cursor + 1, col, row, file_context))
             col += 1
             cursor += 1
         case '{':
@@ -254,6 +260,7 @@ NodeType :: union {
     ^IfStmt,
     ^WhileStmt,
     ^AssignStmt,
+    ^ForStmt,
 
     //
     ^VarExpr,
@@ -312,6 +319,7 @@ StmtType :: union {
     ^IfStmt,
     ^WhileStmt,
     ^AssignStmt,
+    ^ForStmt,
 }
 
 AssignStmt :: struct {
@@ -336,6 +344,14 @@ WhileStmt :: struct {
 ExprStmt :: struct {
     using _: Statement,
     expr:    ^Expr,
+}
+
+ForStmt :: struct {
+    using _: Statement,
+    init:    ^Statement,
+    cond:    ^Expr,
+    post:    ^Statement,
+    block:   ^BlockStmt,
 }
 
 FnFlags :: enum {
@@ -712,6 +728,76 @@ parse_assign_stmt :: proc(filectx: ^FileContext) -> (^AstNode, bool) {
     return node, true
 }
 
+parse_for_stmt :: proc(filectx: ^FileContext) -> (^AstNode, bool) {
+    adv(filectx) // for
+
+    init: ^Statement
+    if init_, ok := int_parse(filectx); ok {
+        init = cast(^Statement)init_
+    } else {
+        fmt.println("Failed to parse for init statement.")
+        return nil, false
+    }
+
+    fmt.assertf(
+        tok(filectx).type == .SEMICOLON,
+        "Parser: {} expected `;` after `for` init, but found {}",
+        tokloc(filectx),
+        tok(filectx).lit,
+    )
+
+    adv(filectx) // ;
+
+    cond: ^Expr
+    if cond_, ok := int_parse(filectx); ok {
+        cond = cond_.as.(^ExprStmt).expr
+    } else {
+        fmt.println("Failed to parse for condition")
+        return nil, false
+    }
+
+    fmt.assertf(
+        tok(filectx).type == .SEMICOLON,
+        "Parser: {} expected `;` after `for` condition, but found {}",
+        tokloc(filectx),
+        tok(filectx).lit,
+    )
+
+    adv(filectx) // ;
+
+    post: ^Statement
+    if post_, ok := int_parse(filectx); ok {
+        post = cast(^Statement)post_
+    } else {
+        fmt.println("Failed to parse for post statement.")
+        return nil, false
+    }
+
+    fmt.assertf(
+        tok(filectx).type == .OPEN_CBRACKET,
+        "Parser: {} expected `{{` after `if` condition, but found {}",
+        tokloc(filectx),
+        tok(filectx).lit,
+    )
+
+    block: ^BlockStmt
+    if block_, ok := parse_block_stmt(filectx); ok {
+        block = block_
+    } else {
+        fmt.println("Failed to parse for block")
+        return nil, false
+    }
+
+    node := newnode(ForStmt)
+    node.as_stmt = node
+    node.init = init
+    node.cond = cond
+    node.post = post
+    node.block = block
+
+    return node, true
+}
+
 try_parse_identifier :: proc(filectx: ^FileContext) -> (^AstNode, bool) {
     if next_two_are(filectx, .COLON, .COLON) {
         return parse_fn_decl_stmt(filectx)
@@ -731,6 +817,8 @@ try_parse_identifier :: proc(filectx: ^FileContext) -> (^AstNode, bool) {
             return parse_lit_bool(filectx)
         case .WHILE:
             return parse_while_stmt(filectx)
+        case .FOR:
+            return parse_for_stmt(filectx)
         }
     } else {
         #partial switch filectx.tokens[filectx.cursor + 1].type {
@@ -875,6 +963,7 @@ Keywords :: enum {
     TRUE,
     FALSE,
     WHILE,
+    FOR,
 }
 
 keywords := map[string]Keywords {
@@ -884,6 +973,7 @@ keywords := map[string]Keywords {
     "true"   = .TRUE,
     "false"  = .FALSE,
     "while"  = .WHILE,
+    "for"    = .FOR,
 }
 // ;parser
 
@@ -894,6 +984,8 @@ Transpiler :: struct {
 }
 
 transpile_cpp :: proc(filectx: ^FileContext, transpiler: Transpiler) -> bool {
+
+    filectx.transpiler.add_semicolon = true
 
     decl_write :: proc(transpiler: Transpiler, fmt_: string, args: ..any, newline_ := false) {
         fmt.sbprintf(transpiler.decl, fmt_, ..args, newline = newline_)
@@ -1041,7 +1133,22 @@ transpile_cpp :: proc(filectx: ^FileContext, transpiler: Transpiler) -> bool {
             decl_write(transpiler, "= ")
         }
         transpile_expr(filectx, transpiler, stmt.expr)
-        decl_write(transpiler, ";\n")
+        if filectx.transpiler.add_semicolon {
+            decl_write(transpiler, ";\n")
+        }
+    }
+
+    transpile_for_stmt :: proc(filectx: ^FileContext, transpiler: Transpiler, stmt: ^ForStmt) {
+        filectx.transpiler.add_semicolon = false
+        decl_write(transpiler, "for(")
+        transpile_stmt(filectx, transpiler, stmt.init)
+        decl_write(transpiler, ";")
+        transpile_expr(filectx, transpiler, stmt.cond)
+        decl_write(transpiler, ";")
+        transpile_stmt(filectx, transpiler, stmt.post)
+        decl_write(transpiler, ")")
+        filectx.transpiler.add_semicolon = true
+        transpile_block_stmt(filectx, transpiler, stmt.block)
     }
 
     transpile_stmt :: proc(filectx: ^FileContext, transpiler: Transpiler, stmt: ^Statement) {
@@ -1062,6 +1169,8 @@ transpile_cpp :: proc(filectx: ^FileContext, transpiler: Transpiler) -> bool {
             transpile_while_stmt(filectx, transpiler, it)
         case ^AssignStmt:
             transpile_assign_stmt(filectx, transpiler, it)
+        case ^ForStmt:
+            transpile_for_stmt(filectx, transpiler, it)
         }
     }
 
@@ -1082,7 +1191,9 @@ transpile_cpp :: proc(filectx: ^FileContext, transpiler: Transpiler) -> bool {
         }
         decl_write(transpiler, "{} {} = ", type, expr.name.lit)
         transpile_expr(filectx, transpiler, expr.expr)
-        decl_write(transpiler, ";\n")
+        if filectx.transpiler.add_semicolon {
+            decl_write(transpiler, ";\n")
+        }
 
         filectx.transpiler.vars[expr.name.lit] = type
     }
