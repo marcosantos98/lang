@@ -238,6 +238,7 @@ NodeType :: union {
     ^BlockStmt,
     ^ExprStmt,
     ^IfStmt,
+    ^WhileStmt,
 
     //
     ^VarExpr,
@@ -288,9 +289,16 @@ StmtType :: union {
     ^VarDeclStmt,
     ^ExprStmt,
     ^IfStmt,
+    ^WhileStmt,
 }
 
 IfStmt :: struct {
+    using stmt: Statement,
+    cond:       ^Expr,
+    block:      ^BlockStmt,
+}
+
+WhileStmt :: struct {
     using stmt: Statement,
     cond:       ^Expr,
     block:      ^BlockStmt,
@@ -608,6 +616,40 @@ parse_if_stmt :: proc(filectx: ^FileContext) -> (^AstNode, bool) {
     return node, true
 }
 
+parse_while_stmt :: proc(filectx: ^FileContext) -> (^AstNode, bool) {
+    adv(filectx) // while
+
+    cond: ^Expr
+    if cond_, ok := int_parse(filectx); ok {
+        cond = cond_.as.(^ExprStmt).expr
+    } else {
+        fmt.println("Failed to parse while condition")
+        return nil, false
+    }
+
+    fmt.assertf(
+        tok(filectx).type == .OPEN_CBRACKET,
+        "Parser: {} expected `{{` after `while` condition, but found {}",
+        tokloc(filectx),
+        tok(filectx).lit,
+    )
+
+    block: ^BlockStmt
+    if block_, ok := parse_block_stmt(filectx); ok {
+        block = block_
+    } else {
+        fmt.println("Failed to parse if block")
+        return nil, false
+    }
+
+    node := newnode(WhileStmt)
+    node.as_stmt = node
+    node.block = block
+    node.cond = cond
+
+    return node, true
+}
+
 try_parse_identifier :: proc(filectx: ^FileContext) -> (^AstNode, bool) {
     if next_two_are(filectx, .COLON, .COLON) {
         return parse_fn_decl_stmt(filectx)
@@ -625,6 +667,8 @@ try_parse_identifier :: proc(filectx: ^FileContext) -> (^AstNode, bool) {
             return parse_if_stmt(filectx)
         case .TRUE, .FALSE:
             return parse_lit_bool(filectx)
+        case .WHILE:
+            return parse_while_stmt(filectx)
         }
     } else {
         return parse_var_expr(filectx)
@@ -763,6 +807,7 @@ Keywords :: enum {
     IF,
     TRUE,
     FALSE,
+    WHILE,
 }
 
 keywords := map[string]Keywords {
@@ -771,6 +816,7 @@ keywords := map[string]Keywords {
     "if"     = .IF,
     "true"   = .TRUE,
     "false"  = .FALSE,
+    "while"  = .WHILE,
 }
 // ;parser
 
@@ -911,6 +957,14 @@ transpile_cpp :: proc(filectx: ^FileContext, transpiler: Transpiler) -> bool {
         transpile_block_stmt(filectx, transpiler, stmt.block)
     }
 
+    transpile_while_stmt :: proc(filectx: ^FileContext, transpiler: Transpiler, stmt: ^WhileStmt) {
+        decl_write(transpiler, "while (")
+        transpile_expr(filectx, transpiler, stmt.cond)
+        decl_write(transpiler, ")")
+        transpile_block_stmt(filectx, transpiler, stmt.block)
+    }
+
+
     transpile_stmt :: proc(filectx: ^FileContext, transpiler: Transpiler, stmt: ^Statement) {
         switch it in stmt.as_stmt {
         case ^FnDeclStmt:
@@ -925,6 +979,8 @@ transpile_cpp :: proc(filectx: ^FileContext, transpiler: Transpiler) -> bool {
             transpile_expr(filectx, transpiler, it.expr)
         case ^IfStmt:
             transpile_if_stmt(filectx, transpiler, it)
+        case ^WhileStmt:
+            transpile_while_stmt(filectx, transpiler, it)
         }
     }
 
