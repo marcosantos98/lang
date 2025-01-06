@@ -1,0 +1,11 @@
+import "std.lang"
+
+main :: void() {
+    i := 30 + 30
+    j := 30 - 1
+    l := 10 * 2
+    m := 2 / 2
+    p := i < j
+    g := j > l
+    exit(i)
+}
