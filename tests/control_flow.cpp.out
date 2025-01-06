@@ -1,0 +1,42 @@
+/* -- Builtin types -- */
+typedef const char* cstr;
+/* -- ------------- -- */
+
+extern "C" int puts(cstr);
+extern "C" int exit(int);
+void ___entry___();
+
+void ___entry___(){
+int i = 0;
+if (i<10){
+puts("Hello, World");
+}
+int k = 100;
+if (k>10){
+puts("K is greater than 10");
+}
+ else if (k<10){
+puts("K is less than 10");
+}
+ else {
+puts("K is 10");
+}
+while (i<2){
+puts("I is less than 2");
+i += 1;
+}
+for(int j = 0;j<10;j += 1){
+puts("TODO: add print number or printf support");
+}
+int l = 0;
+while (true){
+puts("Should print 4 times");
+if (l<3){
+l += 1;
+}
+ else {
+break;
+}
+}
+}
+int main(int argc, char** argv) {___entry___();}
