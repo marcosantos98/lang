@@ -19,8 +19,10 @@ FileContext :: struct {
         defines:       strings.Builder,
         decl:          strings.Builder,
         top_level:     strings.Builder,
+        cur_fn_decl:   string,
         functions:     map[string]struct {
-            type: string,
+            type:       string,
+            scope_vars: map[string]string,
         },
         vars:          map[string]string,
         add_semicolon: bool,
@@ -57,6 +59,7 @@ TokenType :: enum {
     MINUS,
     MULT,
     DIV,
+    MOD,
     LT,
     GT,
     EQ,
@@ -174,6 +177,10 @@ tokenize :: proc(file_context: ^FileContext) -> bool {
             }
         case '*':
             append(&tokens, make_token(.MULT, cursor, cursor + 1, col, row, file_context))
+            col += 1
+            cursor += 1
+        case '%':
+            append(&tokens, make_token(.MOD, cursor, cursor + 1, col, row, file_context))
             col += 1
             cursor += 1
         case '/':
@@ -932,7 +939,7 @@ get_tok_precedence :: proc(filectx: ^FileContext) -> int {
     #partial switch tok(filectx).type {
     case .PLUS, .MINUS:
         return 20
-    case .MULT, .DIV:
+    case .MULT, .DIV, .MOD:
         return 40
     case .LT, .GT:
         return 10
@@ -1060,7 +1067,7 @@ transpile_cpp :: proc(filectx: ^FileContext, transpiler: Transpiler) -> bool {
             }
             top_write(transpiler, ");\n")
         } else {
-
+            filectx.transpiler.cur_fn_decl = expr.name.lit
             filectx.transpiler.has_main = expr.name.lit == "main"
             fn_name := expr.name.lit == "main" ? "___entry___" : expr.name.lit
 
@@ -1076,18 +1083,19 @@ transpile_cpp :: proc(filectx: ^FileContext, transpiler: Transpiler) -> bool {
             top_write(transpiler, ");\n")
 
             // implementation
+            scope_vars := make(map[string]string, context.temp_allocator)
             decl_write(transpiler, "{} {}(", expr.ret_type.lit, fn_name)
             for i in 0 ..< len(expr.params) {
                 arg := expr.params[i]
+                scope_vars[arg.name.lit] = arg.type.lit
                 decl_write(transpiler, "{} {}", arg.type.lit, arg.name.lit)
                 if i != len(expr.params) - 1 {
                     decl_write(transpiler, ", ")
                 }
             }
+            filectx.transpiler.functions[expr.name.lit] = {expr.ret_type.lit, scope_vars}
             decl_write(transpiler, ")")
             transpile_block_stmt(filectx, transpiler, expr.block)
-
-            filectx.transpiler.functions[expr.name.lit] = {expr.ret_type.lit}
         }
     }
 
@@ -1134,6 +1142,10 @@ transpile_cpp :: proc(filectx: ^FileContext, transpiler: Transpiler) -> bool {
         case ^VarExpr:
             if v.name.lit in filectx.transpiler.vars {
                 return filectx.transpiler.vars[v.name.lit], true
+            } else if v.name.lit in filectx.transpiler.functions[filectx.transpiler.cur_fn_decl].scope_vars {
+                return filectx.transpiler.functions[filectx.transpiler.cur_fn_decl].scope_vars[v.name.lit], true
+            } else {
+                fmt.panicf("{}", filectx.transpiler.cur_fn_decl)
             }
         case ^BinaryExpr:
             #partial switch v.operator.type {
@@ -1323,8 +1335,9 @@ transpile_cpp :: proc(filectx: ^FileContext, transpiler: Transpiler) -> bool {
             return false
         }
 
-        delete(path_file.transpiler.vars)
-        delete(path_file.transpiler.functions)
+        //FIXME
+        //delete(path_file.transpiler.vars)
+        //delete(path_file.transpiler.functions)
 
 
         return true

@@ -7,5 +7,6 @@ main :: void() {
     m := 2 / 2
     p := i < j
     g := j > l
+    k := l % 2
     exit(i)
 }
