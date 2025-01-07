@@ -3,9 +3,19 @@ typedef const char* cstr;
 /* -- ------------- -- */
 
 extern "C" int puts(cstr);
+extern "C" int putchar(int);
 extern "C" int exit(int);
+void putd(int);
 void ___entry___();
 
+void putd(int d){
+if (d>9){
+int a = d/10;
+d -= 10*a;
+putd(a);
+}
+putchar(48+d);
+}
 void ___entry___(){
 int i = 30+30;
 int j = 30-1;
@@ -13,6 +23,7 @@ int l = 10*2;
 int m = 2/2;
 bool p = i<j;
 bool g = j>l;
+int k = l%2;
 exit(i);
 }
 int main(int argc, char** argv) {___entry___();}

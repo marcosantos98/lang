@@ -2,4 +2,5 @@ import "./std.lang"
 
 main :: void() {
     puts("Hello World")
+    putd(69)
 }
