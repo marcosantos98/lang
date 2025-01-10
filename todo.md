@@ -4,3 +4,4 @@
 - Add positions to expressions?
 - Allow empty init/cond/post in for loop statement
 - Single token expression should be placed into a single statement
+- Type inference from struct fields
