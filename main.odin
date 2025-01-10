@@ -1,3 +1,4 @@
+#+feature dynamic-literals
 package main
 
 import "core:c/libc"
@@ -11,6 +12,9 @@ _ :: slice
 _ :: filepath
 
 FileContext :: struct {
+    parser:     struct {
+        in_assign: bool,
+    },
     cursor:     int,
     tokens:     []Token,
     ast:        []^AstNode,
@@ -25,6 +29,10 @@ FileContext :: struct {
             scope_vars: map[string]string,
         },
         vars:          map[string]string,
+        structs:       map[string]struct {
+            name:   string,
+            fields: map[string]string,
+        },
         add_semicolon: bool,
     },
     file:       struct {
@@ -63,6 +71,7 @@ TokenType :: enum {
     LT,
     GT,
     EQ,
+    DOT,
     EOF,
 }
 
@@ -201,12 +210,15 @@ tokenize :: proc(file_context: ^FileContext) -> bool {
             append(&tokens, make_token(.LT, cursor, cursor + 1, col, row, file_context))
             col += 1
             cursor += 1
+        case '.':
+            append(&tokens, make_token(.DOT, cursor, cursor + 1, col, row, file_context))
+            col += 1
+            cursor += 1
         case '>':
             append(&tokens, make_token(.GT, cursor, cursor + 1, col, row, file_context))
             col += 1
             cursor += 1
         case '"':
-            // FIXME: this fucks the col
             start := cursor + 1 // adv "
             cursor = tokenize_str(file_context, start)
             append(&tokens, make_token(.LIT_STR, start, cursor, col, row, file_context))
@@ -269,12 +281,15 @@ NodeType :: union {
     ^AssignStmt,
     ^ForStmt,
     ^BreakStmt,
+    ^StructDeclStmt,
 
     //
     ^VarExpr,
     ^FnCallExpr,
     ^LiteralExpr,
     ^BinaryExpr,
+    ^StructInitExpr,
+    ^StructFieldExpr,
 }
 
 Expr :: struct {
@@ -285,6 +300,12 @@ Expr :: struct {
 AssignFlag :: enum {
     PLUS,
     MINUS,
+}
+
+StructInitExpr :: struct {
+    using _:    Expr,
+    type:       Token,
+    value_list: []^Expr,
 }
 
 BinaryExpr :: struct {
@@ -306,11 +327,19 @@ FnCallExpr :: struct {
     args:       []^Expr,
 }
 
+StructFieldExpr :: struct {
+    using _: Expr,
+    who:     ^Expr,
+    field:   ^Expr,
+}
+
 ExprType :: union {
     ^FnCallExpr,
     ^VarExpr,
     ^LiteralExpr,
     ^BinaryExpr,
+    ^StructInitExpr,
+    ^StructFieldExpr,
 }
 
 Statement :: struct {
@@ -329,6 +358,7 @@ StmtType :: union {
     ^AssignStmt,
     ^ForStmt,
     ^BreakStmt,
+    ^StructDeclStmt,
 }
 
 BreakStmt :: struct {
@@ -337,8 +367,7 @@ BreakStmt :: struct {
 
 AssignStmt :: struct {
     using stmt: Statement,
-    who:        Token,
-    expr:       ^Expr,
+    lhs, rhs:   ^Expr,
     flags:      bit_set[AssignFlag],
 }
 
@@ -376,6 +405,12 @@ FnArg :: struct {
     name, type: Token,
 }
 
+StructDeclStmt :: struct {
+    using _: Statement,
+    name:    Token,
+    fields:  []FnArg,
+}
+
 FnDeclStmt :: struct {
     using _:        Statement,
     name, ret_type: Token,
@@ -391,9 +426,10 @@ ImportDeclStmt :: struct {
 }
 
 VarDeclStmt :: struct {
-    using _: Statement,
-    name:    Token,
-    expr:    ^Expr,
+    using _:    Statement,
+    name, type: Token,
+    expr:       ^Expr,
+    typed:      bool,
 }
 
 BlockStmt :: struct {
@@ -428,6 +464,14 @@ next_two_are :: proc(filectx: ^FileContext, a, b: TokenType) -> bool {
     return filectx.tokens[filectx.cursor + 1].type == a && filectx.tokens[filectx.cursor + 2].type == b
 }
 
+next_three_are :: proc(filectx: ^FileContext, a, b, c: TokenType) -> bool {
+    return(
+        filectx.tokens[filectx.cursor + 1].type == a &&
+        filectx.tokens[filectx.cursor + 2].type == b &&
+        filectx.tokens[filectx.cursor + 3].type == c \
+    )
+}
+
 adv :: proc(filectx: ^FileContext) {
     filectx.cursor += 1
 }
@@ -438,6 +482,26 @@ tok_lit_is :: proc(filectx: ^FileContext, lit: string) -> bool {
 
 tok_is_keyword :: proc(filectx: ^FileContext, keyword: Keywords) -> bool {
     return tok(filectx).lit in keywords && keywords[tok(filectx).lit] == keyword
+}
+
+check_if_assign :: proc(filectx: ^FileContext) -> bool {
+    cursor := filectx.cursor
+
+    is_tok :: proc(filectx: ^FileContext, cursor: int) -> TokenType {
+        return filectx.tokens[cursor].type
+    }
+
+    for {
+        if is_tok(filectx, cursor) == .IDENTIFIER || is_tok(filectx, cursor) == .DOT {
+            cursor += 1
+        } else if is_tok(filectx, cursor) == .EQ ||
+           is_tok(filectx, cursor) == .PLUS_EQ ||
+           is_tok(filectx, cursor) == .MINUS_EQ {
+            return true
+        } else {
+            return false
+        }
+    }
 }
 
 newnode :: proc($type: typeid) -> ^type {
@@ -469,11 +533,18 @@ parse_import_stmt :: proc(filectx: ^FileContext) -> (^AstNode, bool) {
     return node, true
 }
 
-parse_var_decl_stmt :: proc(filectx: ^FileContext) -> (^AstNode, bool) {
+parse_var_decl_stmt :: proc(filectx: ^FileContext, typed := false) -> (^AstNode, bool) {
     name := tok(filectx)
     trace("VarDeclExpr ({})", name.lit)
     adv(filectx) // name
     adv(filectx) // :
+
+    type: Token
+    if typed {
+        type = tok(filectx)
+        adv(filectx) // type
+    }
+
     adv(filectx) // =
     expr: ^Expr
     if expr_, ok := int_parse(filectx); ok {
@@ -486,6 +557,8 @@ parse_var_decl_stmt :: proc(filectx: ^FileContext) -> (^AstNode, bool) {
     node.as_stmt = node
     node.expr = expr
     node.name = name
+    node.type = type
+    node.typed = typed
 
     return node, true
 }
@@ -554,7 +627,7 @@ parse_fn_call_expr :: proc(filectx: ^FileContext) -> (^AstNode, bool) {
 }
 
 parse_fn_decl_stmt :: proc(filectx: ^FileContext) -> (^AstNode, bool) {
-
+    trace("FnDeclStmt")
     flags := bit_set[FnFlags]{}
     lib: Token
 
@@ -642,6 +715,7 @@ parse_var_expr :: proc(filectx: ^FileContext) -> (^AstNode, bool) {
 }
 
 parse_if_stmt :: proc(filectx: ^FileContext) -> (^AstNode, bool) {
+    trace("ParseIfStmt")
     adv(filectx) // if
 
     cond: ^Expr
@@ -699,6 +773,7 @@ parse_if_stmt :: proc(filectx: ^FileContext) -> (^AstNode, bool) {
 }
 
 parse_while_stmt :: proc(filectx: ^FileContext) -> (^AstNode, bool) {
+    trace("WhileStmt")
     adv(filectx) // while
 
     cond: ^Expr
@@ -732,11 +807,47 @@ parse_while_stmt :: proc(filectx: ^FileContext) -> (^AstNode, bool) {
     return node, true
 }
 
+parse_struct_field_expr :: proc(filectx: ^FileContext) -> (^AstNode, bool) {
+    trace("StructFieldExpr")
+    who: ^Expr
+    if who_, ok := parse_var_expr(filectx); ok {
+        who = who_.as.(^ExprStmt).expr
+    } else {
+        fmt.println("Failed to parse struct field who")
+        return nil, false
+    }
+
+    adv(filectx) // .
+
+    field: ^Expr
+    if field_, ok := int_parse(filectx); ok {
+        field = field_.as.(^ExprStmt).expr
+    } else {
+        fmt.println("Failed to parse struct field field")
+        return nil, false
+    }
+
+    node := newnode(StructFieldExpr)
+    node.as_expr = node
+    node.who = who
+    node.field = field
+
+    return newstmtnode(node), true
+}
+
+parse_as_stmt_expr_or :: proc(filectx: ^FileContext, msg: string, args: ..any) -> ^Expr {
+    if expr, ok := int_parse(filectx); ok {
+        return expr.as.(^ExprStmt).expr
+    }
+    fmt.panicf(msg, args)
+}
+
 parse_assign_stmt :: proc(filectx: ^FileContext) -> (^AstNode, bool) {
+    trace("Assign")
 
-    who := tok(filectx)
-    adv(filectx) // who
+    filectx.parser.in_assign = true
 
+    lhs := parse_as_stmt_expr_or(filectx, "Failed to parse left hand side of assign expression")
     flags := bit_set[AssignFlag]{}
 
     #partial switch tok(filectx).type {
@@ -748,24 +859,20 @@ parse_assign_stmt :: proc(filectx: ^FileContext) -> (^AstNode, bool) {
 
     adv(filectx) // = / += / -=
 
-    expr: ^Expr
-    if expr_, ok := int_parse(filectx); ok {
-        expr = expr_.as.(^ExprStmt).expr
-    } else {
-        fmt.println("Failed to parse assign expression")
-        return nil, false
-    }
+    filectx.parser.in_assign = false
+
+    rhs := parse_as_stmt_expr_or(filectx, "Failed to parse right hand side of assign expression")
 
     node := newnode(AssignStmt)
     node.as_stmt = node
     node.flags = flags
-    node.who = who
-    node.expr = expr
-
+    node.lhs = lhs
+    node.rhs = rhs
     return node, true
 }
 
 parse_for_stmt :: proc(filectx: ^FileContext) -> (^AstNode, bool) {
+    trace("ForStmt")
     adv(filectx) // for
 
     init: ^Statement
@@ -812,7 +919,7 @@ parse_for_stmt :: proc(filectx: ^FileContext) -> (^AstNode, bool) {
 
     fmt.assertf(
         tok(filectx).type == .OPEN_CBRACKET,
-        "Parser: {} expected `{{` after `if` condition, but found {}",
+        "Parser: {} expected `{{` after `for` post condition, but found {}",
         tokloc(filectx),
         tok(filectx).lit,
     )
@@ -843,14 +950,104 @@ parse_break_stmt :: proc(filectx: ^FileContext) -> (^AstNode, bool) {
     return node, true
 }
 
+parse_struct_decl_stmt :: proc(filectx: ^FileContext) -> (^AstNode, bool) {
+    trace("StructDeclStmt")
+    adv(filectx) // struct
+
+    fmt.assertf(tok(filectx).type == .IDENTIFIER, "Expect name after `struct`, found {}", tok(filectx).lit)
+
+    name := tok(filectx)
+    adv(filectx) // name
+
+    fmt.assertf(
+        tok(filectx).type == .OPEN_CBRACKET,
+        "Expect struct block ({{...}}) after struct name, found {}",
+        tok(filectx).lit,
+    )
+
+    adv(filectx) // {
+
+    fields := make([dynamic]FnArg, context.temp_allocator)
+    for tok(filectx).type != .CLOSE_CBRACKET {
+        fmt.assertf(
+            tok(filectx).type != .EOF,
+            "Expect either struct fields or `}`, found end of file",
+            tok(filectx).lit,
+        )
+        fmt.assertf(
+            tok(filectx).type == .IDENTIFIER && next_is(filectx, .IDENTIFIER),
+            "Expect struct field (name + type), found {}",
+            tok(filectx).lit,
+        )
+        arg_name := tok(filectx)
+        adv(filectx) // arg_name
+        arg_type := tok(filectx)
+        adv(filectx) // arg_type
+
+        append(&fields, FnArg{name = arg_name, type = arg_type})
+
+        if tok(filectx).type == .COMMA {
+            adv(filectx) // ,
+        }
+    }
+
+    adv(filectx) // }
+
+    node := newnode(StructDeclStmt)
+    node.as_stmt = node
+    node.name = name
+    node.fields = fields[:]
+
+    return node, true
+}
+
+parse_struct_init_expr :: proc(filectx: ^FileContext) -> (^AstNode, bool) {
+    trace("StructInitExpr")
+    type := tok(filectx)
+    adv(filectx) // type
+
+    adv(filectx) // {
+
+    values := make([dynamic]^Expr, context.temp_allocator)
+    for tok(filectx).type != .CLOSE_CBRACKET {
+        fmt.assertf(
+            tok(filectx).type != .EOF,
+            "Expect either expression or block close `}`, found end of file",
+            tok(filectx).lit,
+        )
+
+        if expr, ok := int_parse(filectx); ok {
+            append(&values, expr.as.(^ExprStmt).expr)
+        } else {
+            fmt.println("Failed to parse expression in struct initializer")
+            return nil, false
+        }
+
+        if tok(filectx).type == .COMMA {
+            adv(filectx) // ,
+        }
+    }
+
+    adv(filectx) // }
+
+    node := newnode(StructInitExpr)
+    node.as_expr = node
+    node.type = type
+    node.value_list = values[:]
+
+    return newstmtnode(node), true
+}
+
 try_parse_identifier :: proc(filectx: ^FileContext) -> (^AstNode, bool) {
-    trace("ParseIdentifier: ({})", tok(filectx).lit)
+    trace("ParseIdentifier: ({}{})", tokloc(filectx), tok(filectx).lit)
     if next_two_are(filectx, .COLON, .COLON) {
         return parse_fn_decl_stmt(filectx)
     } else if next_is(filectx, .OPEN_PAREN) {
         return parse_fn_call_expr(filectx)
     } else if next_two_are(filectx, .COLON, .EQ) {
         return parse_var_decl_stmt(filectx)
+    } else if next_three_are(filectx, .COLON, .IDENTIFIER, .EQ) {
+        return parse_var_decl_stmt(filectx, true)
     } else if tok(filectx).lit in keywords {
         switch keywords[tok(filectx).lit] {
         case .EXTERNAL:
@@ -867,17 +1064,20 @@ try_parse_identifier :: proc(filectx: ^FileContext) -> (^AstNode, bool) {
             return parse_for_stmt(filectx)
         case .BREAK:
             return parse_break_stmt(filectx)
+        case .STRUCT:
+            return parse_struct_decl_stmt(filectx)
         case .ELSE:
             fmt.println("Invalid token:", tok(filectx).lit)
             return nil, false
         }
+    } else if next_is(filectx, .OPEN_CBRACKET) {
+        return parse_struct_init_expr(filectx)
+    } else if check_if_assign(filectx) && !filectx.parser.in_assign {
+        return parse_assign_stmt(filectx)
+    } else if next_is(filectx, .DOT) {
+        return parse_struct_field_expr(filectx)
     } else {
-        #partial switch filectx.tokens[filectx.cursor + 1].type {
-        case .EQ, .PLUS_EQ, .MINUS_EQ:
-            return parse_assign_stmt(filectx)
-        case:
-            return parse_var_expr(filectx)
-        }
+        return parse_var_expr(filectx)
     }
     return nil, false
 }
@@ -1017,6 +1217,7 @@ Keywords :: enum {
     FOR,
     BREAK,
     ELSE,
+    STRUCT,
 }
 
 keywords := map[string]Keywords {
@@ -1029,6 +1230,7 @@ keywords := map[string]Keywords {
     "for"    = .FOR,
     "break"  = .BREAK,
     "else"   = .ELSE,
+    "struct" = .STRUCT,
 }
 // ;parser
 
@@ -1140,12 +1342,15 @@ transpile_cpp :: proc(filectx: ^FileContext, transpiler: Transpiler) -> bool {
                 return "bool", true
             }
         case ^VarExpr:
+            trace("Infering from VarExpr")
             if v.name.lit in filectx.transpiler.vars {
                 return filectx.transpiler.vars[v.name.lit], true
             } else if v.name.lit in filectx.transpiler.functions[filectx.transpiler.cur_fn_decl].scope_vars {
                 return filectx.transpiler.functions[filectx.transpiler.cur_fn_decl].scope_vars[v.name.lit], true
+            } else if v.name.lit in filectx.transpiler.structs {
+                return v.name.lit, true
             } else {
-                fmt.panicf("{}", filectx.transpiler.cur_fn_decl)
+                return v.name.lit, true
             }
         case ^BinaryExpr:
             #partial switch v.operator.type {
@@ -1153,6 +1358,12 @@ transpile_cpp :: proc(filectx: ^FileContext, transpiler: Transpiler) -> bool {
                 return "bool", true
             }
             return try_to_infer(filectx, v.lhs)
+        case ^StructInitExpr:
+            if v.type.lit in filectx.transpiler.structs {
+                return v.type.lit, true
+            }
+        case ^StructFieldExpr:
+            fmt.println("Can't infer type from struct field.")
         }
         return "", false
     }
@@ -1188,15 +1399,15 @@ transpile_cpp :: proc(filectx: ^FileContext, transpiler: Transpiler) -> bool {
     }
 
     transpile_assign_stmt :: proc(filectx: ^FileContext, transpiler: Transpiler, stmt: ^AssignStmt) {
-        decl_write(transpiler, "{} ", stmt.who.lit)
+        transpile_expr(filectx, transpiler, stmt.lhs)
         if AssignFlag.PLUS in stmt.flags {
-            decl_write(transpiler, "+= ")
+            decl_write(transpiler, " += ")
         } else if AssignFlag.MINUS in stmt.flags {
-            decl_write(transpiler, "-= ")
+            decl_write(transpiler, " -= ")
         } else {
-            decl_write(transpiler, "= ")
+            decl_write(transpiler, " = ")
         }
-        transpile_expr(filectx, transpiler, stmt.expr)
+        transpile_expr(filectx, transpiler, stmt.rhs)
         if filectx.transpiler.add_semicolon {
             decl_write(transpiler, ";\n")
         }
@@ -1217,6 +1428,18 @@ transpile_cpp :: proc(filectx: ^FileContext, transpiler: Transpiler) -> bool {
 
     transpile_break_stmt :: proc(filectx: ^FileContext, transpiler: Transpiler, stmt: ^BreakStmt) {
         decl_write(transpiler, "break;\n")
+    }
+
+    transpile_struct_decl_stmt :: proc(filectx: ^FileContext, transpiler: Transpiler, stmt: ^StructDeclStmt) {
+        def_write(transpiler, "struct {} {{\n", stmt.name.lit)
+        fields := make(map[string]string, context.temp_allocator)
+        for field in stmt.fields {
+            fields[field.name.lit] = field.type.lit
+            def_write(transpiler, "{} {};\n", field.type.lit, field.name.lit)
+        }
+        def_write(transpiler, "}};\n")
+
+        filectx.transpiler.structs[stmt.name.lit] = {stmt.name.lit, fields}
     }
 
     transpile_stmt :: proc(filectx: ^FileContext, transpiler: Transpiler, stmt: ^Statement) {
@@ -1241,6 +1464,8 @@ transpile_cpp :: proc(filectx: ^FileContext, transpiler: Transpiler) -> bool {
             transpile_for_stmt(filectx, transpiler, it)
         case ^BreakStmt:
             transpile_break_stmt(filectx, transpiler, it)
+        case ^StructDeclStmt:
+            transpile_struct_decl_stmt(filectx, transpiler, it)
         }
     }
 
@@ -1251,13 +1476,19 @@ transpile_cpp :: proc(filectx: ^FileContext, transpiler: Transpiler) -> bool {
 
     transpile_var_decl_stmt :: proc(filectx: ^FileContext, transpiler: Transpiler, expr: ^VarDeclStmt) {
         // FIXME: assuming always used in declaration
-        type, ok := try_to_infer(filectx, expr.expr)
-        if !ok {
-            fmt.panicf(
-                "CompilerBUG: {} Couldn't infer type for {}. Type inference should be made before.\n",
-                tokloc(filectx, expr.name),
-                expr.name.lit,
-            )
+        type: string
+        if !expr.typed {
+            ok: bool
+            type, ok = try_to_infer(filectx, expr.expr)
+            if !ok {
+                fmt.panicf(
+                    "CompilerBUG: {} Couldn't infer type for {}. Type inference should be made before.\n",
+                    tokloc(filectx, expr.name),
+                    expr.name.lit,
+                )
+            }
+        } else {
+            type = expr.type.lit
         }
         decl_write(transpiler, "{} {} = ", type, expr.name.lit)
         transpile_expr(filectx, transpiler, expr.expr)
@@ -1274,6 +1505,23 @@ transpile_cpp :: proc(filectx: ^FileContext, transpiler: Transpiler) -> bool {
         transpile_expr(filectx, transpiler, expr.rhs)
     }
 
+    transpile_struct_init_expr :: proc(filectx: ^FileContext, transpiler: Transpiler, expr: ^StructInitExpr) {
+        decl_write(transpiler, "{} {{\n", expr.type.lit)
+        for i in 0 ..< len(expr.value_list) {
+            exp := expr.value_list[i]
+            transpile_expr(filectx, transpiler, exp)
+            if i < len(expr.value_list) - 1 {
+                decl_write(transpiler, ",\n")
+            }
+        }
+        decl_write(transpiler, "}}")
+    }
+
+    transpile_struct_field_expr :: proc(filectx: ^FileContext, transpiler: Transpiler, expr: ^StructFieldExpr) {
+        transpile_expr(filectx, transpiler, expr.who)
+        decl_write(transpiler, ".")
+        transpile_expr(filectx, transpiler, expr.field)
+    }
 
     transpile_expr :: proc(filectx: ^FileContext, transpiler: Transpiler, expr: ^Expr) {
         switch it in expr.as_expr {
@@ -1285,6 +1533,10 @@ transpile_cpp :: proc(filectx: ^FileContext, transpiler: Transpiler) -> bool {
             transpile_var_expr(filectx, transpiler, it)
         case ^BinaryExpr:
             transpile_binary_expr(filectx, transpiler, it)
+        case ^StructInitExpr:
+            transpile_struct_init_expr(filectx, transpiler, it)
+        case ^StructFieldExpr:
+            transpile_struct_field_expr(filectx, transpiler, it)
         }
     }
 
