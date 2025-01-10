@@ -282,6 +282,7 @@ NodeType :: union {
     ^ForStmt,
     ^BreakStmt,
     ^StructDeclStmt,
+    ^ReturnStmt,
 
     //
     ^VarExpr,
@@ -359,6 +360,7 @@ StmtType :: union {
     ^ForStmt,
     ^BreakStmt,
     ^StructDeclStmt,
+    ^ReturnStmt,
 }
 
 BreakStmt :: struct {
@@ -395,6 +397,11 @@ ForStmt :: struct {
     cond:    ^Expr,
     post:    ^Statement,
     block:   ^BlockStmt,
+}
+
+ReturnStmt :: struct {
+    using _: Statement,
+    expr:    ^Expr,
 }
 
 FnFlags :: enum {
@@ -1038,6 +1045,19 @@ parse_struct_init_expr :: proc(filectx: ^FileContext) -> (^AstNode, bool) {
     return newstmtnode(node), true
 }
 
+parse_return_stmt :: proc(filectx: ^FileContext) -> (^AstNode, bool) {
+    trace("ReturnStmt")
+    adv(filectx) // return
+
+    expr := parse_as_stmt_expr_or(filectx, "Failed to parse return expr")
+
+    node := newnode(ReturnStmt)
+    node.as_stmt = node
+    node.expr = expr
+
+    return node, true
+}
+
 try_parse_identifier :: proc(filectx: ^FileContext) -> (^AstNode, bool) {
     trace("ParseIdentifier: ({}{})", tokloc(filectx), tok(filectx).lit)
     if next_two_are(filectx, .COLON, .COLON) {
@@ -1066,6 +1086,8 @@ try_parse_identifier :: proc(filectx: ^FileContext) -> (^AstNode, bool) {
             return parse_break_stmt(filectx)
         case .STRUCT:
             return parse_struct_decl_stmt(filectx)
+        case .RETURN:
+            return parse_return_stmt(filectx)
         case .ELSE:
             fmt.println("Invalid token:", tok(filectx).lit)
             return nil, false
@@ -1218,6 +1240,7 @@ Keywords :: enum {
     BREAK,
     ELSE,
     STRUCT,
+    RETURN,
 }
 
 keywords := map[string]Keywords {
@@ -1231,6 +1254,7 @@ keywords := map[string]Keywords {
     "break"  = .BREAK,
     "else"   = .ELSE,
     "struct" = .STRUCT,
+    "return" = .RETURN,
 }
 // ;parser
 
@@ -1442,6 +1466,13 @@ transpile_cpp :: proc(filectx: ^FileContext, transpiler: Transpiler) -> bool {
         filectx.transpiler.structs[stmt.name.lit] = {stmt.name.lit, fields}
     }
 
+    transpile_return_stmt :: proc(filectx: ^FileContext, transpiler: Transpiler, stmt: ^ReturnStmt) {
+        trace("Transpile ReturnStmt")
+        decl_write(transpiler, "return ")
+        transpile_expr(filectx, transpiler, stmt.expr)
+        decl_write(transpiler, ";\n")
+    }
+
     transpile_stmt :: proc(filectx: ^FileContext, transpiler: Transpiler, stmt: ^Statement) {
         switch it in stmt.as_stmt {
         case ^FnDeclStmt:
@@ -1466,6 +1497,8 @@ transpile_cpp :: proc(filectx: ^FileContext, transpiler: Transpiler) -> bool {
             transpile_break_stmt(filectx, transpiler, it)
         case ^StructDeclStmt:
             transpile_struct_decl_stmt(filectx, transpiler, it)
+        case ^ReturnStmt:
+            transpile_return_stmt(filectx, transpiler, it)
         }
     }
 

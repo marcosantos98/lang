@@ -60,3 +60,11 @@ main :: void() {
     a := A{10, 11}
 }
 ```
+
+## return
+
+```odin
+sum :: int(a int, b int) {
+    return a + b
+}
+```
