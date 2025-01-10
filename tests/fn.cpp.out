@@ -7,6 +7,7 @@ int sum(int, int);
 void ___entry___();
 
 int sum(int a, int b){
+return a+b;
 }
 void ___entry___(){
 }
