@@ -1,0 +1,20 @@
+import "std.lang"
+
+struct Bar {
+    baz int,
+}
+
+struct Foo {
+    bar int,
+    baz int,
+}
+
+main :: void() {
+   foo := Foo{10, 20}
+
+   b: int = foo.baz
+
+   putd(foo.bar)
+   puts("")
+   putd(foo.baz)
+}

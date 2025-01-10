@@ -1,0 +1,35 @@
+/* -- Builtin types -- */
+typedef const char* cstr;
+/* -- ------------- -- */
+struct Bar {
+int baz;
+};
+struct Foo {
+int bar;
+int baz;
+};
+
+extern "C" int puts(cstr);
+extern "C" int putchar(int);
+extern "C" int exit(int);
+void putd(int);
+void ___entry___();
+
+void putd(int d){
+if (d>9){
+int a = d/10;
+d -= 10*a;
+putd(a);
+}
+putchar(48+d);
+}
+void ___entry___(){
+Foo foo = Foo {
+10,
+20};
+int b = foo.baz;
+putd(foo.bar);
+puts("");
+putd(foo.baz);
+}
+int main(int argc, char** argv) {___entry___();}
