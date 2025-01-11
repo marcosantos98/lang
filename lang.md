@@ -36,24 +36,24 @@ import "<filepath>"
 - Infered:
 
 ```odin
-a := 0
-b := ""
-c := fn_call()
-d := 1 + 2
+var a = 0
+var b = ""
+var c = fn_call()
+var d = 1 + 2
 ```
 
 With type:
 
 ```odin
-a : int = 10
+var a : int = 10
 ```
 
 ## data
 
 ```odin
-a := 10
-a_ptr := &b
-b := *a_ptr
+var a = 10
+var a_ptr = &b
+var b = *a_ptr
 
 struct A {
    b int,
@@ -61,7 +61,7 @@ struct A {
 }
 
 main :: void() {
-    a := A{10, 11}
+    var a = A{10, 11}
 }
 ```
 
