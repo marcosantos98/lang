@@ -1,0 +1,14 @@
+import "std.lang"
+
+example :: void(a int*) {
+    *a += 1
+}
+
+main :: void() {
+
+    a := 1
+    putd(a)
+    puts("")
+    example(&a)
+    putd(a)
+}
