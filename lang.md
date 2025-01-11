@@ -51,6 +51,10 @@ a : int = 10
 ## data
 
 ```odin
+a := 10
+a_ptr := &b
+b := *a_ptr
+
 struct A {
    b int,
    c int,
