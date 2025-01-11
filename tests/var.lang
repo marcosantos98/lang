@@ -5,10 +5,10 @@ thing :: void(thing bool) {
 }
 
 main :: void() {
-    a := 10
-    b := "Hello"
-    c := true
-    d := false
+    var a = 10
+    var b = "Hello"
+    var c = true
+    var d = false
     
     puts(b)
 
