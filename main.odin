@@ -123,6 +123,14 @@ tokenize :: proc(file_context: ^FileContext) -> bool {
         return end
     }
 
+    tokenize_comment :: proc(filectx: ^FileContext, cursor: int) -> int {
+        end := cursor
+        for filectx.file.content[end] != '\n' {
+            end += 1
+        }
+        return end
+    }
+
     make_token :: proc(type: TokenType, start, end, col, row: int, file_ctx: ^FileContext) -> Token {
         return Token{type = type, loc = {col, row}, lit = string(file_ctx.file.content[start:end])}
     }
@@ -193,9 +201,15 @@ tokenize :: proc(file_context: ^FileContext) -> bool {
             col += 1
             cursor += 1
         case '/':
-            append(&tokens, make_token(.DIV, cursor, cursor + 1, col, row, file_context))
-            col += 1
-            cursor += 1
+            if file_context.file.content[cursor + 1] == '/' {
+                start := cursor
+                cursor = tokenize_comment(file_context, cursor)
+                col += cursor - start
+            } else {
+                append(&tokens, make_token(.DIV, cursor, cursor + 1, col, row, file_context))
+                col += 1
+                cursor += 1
+            }
         case '+':
             if file_context.file.content[cursor + 1] == '=' {
                 append(&tokens, make_token(.PLUS_EQ, cursor, cursor + 2, col, row, file_context))
