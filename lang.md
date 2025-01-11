@@ -72,3 +72,10 @@ sum :: int(a int, b int) {
     return a + b
 }
 ```
+
+## array
+
+```odin
+var data = []int{}
+data[0] = data[1]
+```
