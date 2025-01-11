@@ -1,0 +1,39 @@
+/* -- Builtin types -- */
+typedef const char* cstr;
+/* -- ------------- -- */
+
+extern "C" int puts(cstr);
+extern "C" int putchar(int);
+extern "C" int exit(int);
+void putd(int);
+void add(int*);
+void print(int);
+void ___entry___();
+
+void putd(int d){
+if (d>9){
+int a = d/10;
+d -= 10*a;
+putd(a);
+}
+putchar(48+d);
+}
+void add(int* a){
+*a += 1;
+}
+void print(int a){
+putd(a);
+}
+void ___entry___(){
+int ns[10] = {0,
+2};
+ns[0] = 0;
+putd(ns[0]);
+add(&ns[0]);
+puts("");
+putd(ns[0]);
+int* z = &ns[1];
+puts("");
+print(*z);
+}
+int main(int argc, char** argv) {___entry___();}

@@ -17,6 +17,7 @@ FileContext :: struct {
         is_pointer:    bool,
         is_deref:      bool,
         is_type_parse: bool,
+        is_arr:        bool,
         as_expr:       bool,
     },
     cursor:     int,
@@ -85,6 +86,8 @@ TokenType :: enum {
     EQ,
     DOT,
     AMPERSAND,
+    OPEN_SQRB,
+    CLOSE_SQRB,
     EOF,
 }
 
@@ -119,7 +122,6 @@ tokenize :: proc(file_context: ^FileContext) -> bool {
         }
         return end
     }
-
 
     tokenize_str :: proc(file_ctx: ^FileContext, cursor: int) -> int {
         end := cursor
@@ -186,6 +188,14 @@ tokenize :: proc(file_context: ^FileContext) -> bool {
             cursor += 1
         case ')':
             append(&tokens, make_token(.CLOSE_PAREN, cursor, cursor + 1, col, row, file_context))
+            col += 1
+            cursor += 1
+        case '[':
+            append(&tokens, make_token(.OPEN_SQRB, cursor, cursor + 1, col, row, file_context))
+            col += 1
+            cursor += 1
+        case ']':
+            append(&tokens, make_token(.CLOSE_SQRB, cursor, cursor + 1, col, row, file_context))
             col += 1
             cursor += 1
         case ',':
@@ -325,6 +335,8 @@ NodeType :: union {
     ^StructFieldExpr,
     ^PointerExpr,
     ^AutoCastExpr,
+    ^ArrayTypeExpr,
+    ^ArrayIndexExpr,
 }
 
 Expr :: struct {
@@ -335,6 +347,19 @@ Expr :: struct {
 AssignFlag :: enum {
     PLUS,
     MINUS,
+}
+
+ArrayTypeExpr :: struct {
+    using _:    Expr,
+    len:        ^Expr,
+    type:       ^Expr,
+    value_list: []^Expr,
+}
+
+ArrayIndexExpr :: struct {
+    using _: Expr,
+    pre:     ^Expr,
+    index:   ^Expr,
 }
 
 AutoCastExpr :: struct {
@@ -383,6 +408,8 @@ ExprType :: union {
     ^StructFieldExpr,
     ^PointerExpr,
     ^AutoCastExpr,
+    ^ArrayTypeExpr,
+    ^ArrayIndexExpr,
 }
 
 Statement :: struct {
@@ -605,7 +632,7 @@ parse_var_decl_stmt :: proc(filectx: ^FileContext) -> (^AstNode, bool) {
         typed = true
         adv(filectx) // :
         filectx.parser.is_type_parse = true
-        type = parse_as_stmt_expr_or(filectx, "Failed to parse var type for `{}`", name.lit)
+        type = parse_as_lhs_expr_or(filectx, "Failed to parse var type for {}`{}`", tokloc(filectx), name.lit)
         filectx.parser.is_type_parse = false
     }
 
@@ -672,6 +699,32 @@ parse_block_stmt :: proc(filectx: ^FileContext) -> (^BlockStmt, bool) {
     return node, true
 }
 
+parse_array_index_expr :: proc(filectx: ^FileContext) -> (^AstNode, bool) {
+    trace("ArrayIndexExpr")
+    filectx.parser.as_expr = true
+    pre := parse_as_stmt_expr_or(filectx, "Failed to parse expression before index")
+    filectx.parser.as_expr = false
+
+    adv(filectx) // [
+
+    index := parse_as_stmt_expr_or(filectx, "Failed to parse index expression")
+
+    fmt.assertf(
+        tok(filectx).type == .CLOSE_SQRB,
+        "{} Expect `[` after index, found `{}`",
+        tokloc(filectx),
+        tok(filectx).lit,
+    )
+
+    adv(filectx) // ]
+
+    node := newnode(ArrayIndexExpr)
+    node.as_expr = node
+    node.pre = pre
+    node.index = index
+
+    return newstmtnode(node), true
+}
 
 parse_fn_call_expr :: proc(filectx: ^FileContext) -> (^AstNode, bool) {
     name := tok(filectx)
@@ -935,12 +988,24 @@ parse_as_stmt_expr_or :: proc(filectx: ^FileContext, msg: string, args: ..any, l
     if stmt, ok := int_parse(filectx); ok {
         if expr, okk := stmt.as.(^ExprStmt); okk {
             return expr.as.(^ExprStmt).expr
+        } else {
+            fmt.print(stmt.as)
         }
     }
     fmt.print(loc, "")
     fmt.panicf(msg, ..args)
 }
-
+parse_as_lhs_expr_or :: proc(filectx: ^FileContext, msg: string, args: ..any, loc := #caller_location) -> ^Expr {
+    if stmt, ok := parse_lhs(filectx); ok {
+        if expr, okk := stmt.as.(^ExprStmt); okk {
+            return expr.as.(^ExprStmt).expr
+        } else {
+            fmt.print(stmt.as)
+        }
+    }
+    fmt.print(loc, "")
+    fmt.panicf(msg, ..args)
+}
 parse_assign_stmt :: proc(filectx: ^FileContext) -> (^AstNode, bool) {
     trace("Assign")
 
@@ -1199,13 +1264,10 @@ try_parse_identifier :: proc(filectx: ^FileContext) -> (^AstNode, bool) {
         return parse_pointer_expr(filectx)
     } else if next_two_are(filectx, .COLON, .COLON) {
         return parse_fn_decl_stmt(filectx)
-    } else if next_is(filectx, .OPEN_CBRACKET) {
+    } else if !filectx.parser.is_arr && next_is(filectx, .OPEN_CBRACKET) {
         return parse_struct_init_expr(filectx)
-    } else if !filectx.parser.as_expr &&
-       check_if_assign(filectx) &&
-       !filectx.parser.in_assign &&
-       !filectx.parser.is_type_parse {
-        return parse_assign_stmt(filectx)
+    } else if !filectx.parser.as_expr && next_is(filectx, .OPEN_SQRB) {
+        return parse_array_index_expr(filectx)
     } else if next_is(filectx, .DOT) {
         return parse_struct_field_expr(filectx)
     } else {
@@ -1247,6 +1309,60 @@ parse_lit_number :: proc(filectx: ^FileContext) -> (^AstNode, bool) {
     return newstmtnode(node), true
 }
 
+parse_arr_type_expr :: proc(filectx: ^FileContext) -> (^AstNode, bool) {
+    trace("ArrayTypeExpr")
+    adv(filectx) // [
+
+    len: ^Expr = nil
+    if tok(filectx).type != .CLOSE_SQRB {
+        len = parse_as_stmt_expr_or(filectx, "Failed to parse array lenght")
+    }
+
+    fmt.assertf(
+        tok(filectx).type == .CLOSE_SQRB,
+        "{} Expected `]` to close array type, found `{}`",
+        tokloc(filectx),
+        tok(filectx).lit,
+    )
+
+    adv(filectx) // ]
+
+    filectx.parser.is_arr = true
+    type := parse_as_stmt_expr_or(filectx, "Failed to parse array type.")
+    filectx.parser.is_arr = false
+
+    fmt.assertf(
+        tok(filectx).type == .OPEN_CBRACKET,
+        "{} Expected `{{` after array type found `{}`.",
+        tokloc(filectx),
+        tok(filectx).lit,
+    )
+
+    adv(filectx) // {
+
+    value_list := make([dynamic]^Expr, context.temp_allocator)
+    for tok(filectx).type != .CLOSE_CBRACKET {
+        fmt.assertf(tok(filectx).type != .EOF, "Expect value or block close `}`, found end of file", tok(filectx).lit)
+
+        value := parse_as_stmt_expr_or(filectx, "Failed to parse array value")
+        append(&value_list, value)
+
+        if tok(filectx).type == .COMMA {
+            adv(filectx) // ,
+        }
+    }
+
+    adv(filectx) // }
+
+    node := newnode(ArrayTypeExpr)
+    node.as_expr = node
+    node.type = type
+    node.len = len
+    node.value_list = value_list[:]
+
+    return newstmtnode(node), true
+}
+
 parse_primary :: proc(filectx: ^FileContext) -> (^AstNode, bool) {
     trace("ParsePrimary")
     #partial switch tok(filectx).type {
@@ -1270,6 +1386,8 @@ parse_primary :: proc(filectx: ^FileContext) -> (^AstNode, bool) {
             adv(filectx) // *
             return parse_primary(filectx)
         }
+    case .OPEN_SQRB:
+        return parse_arr_type_expr(filectx)
     }
     fmt.panicf("Parser: {} Not valid primary: {}", tokloc(filectx), tok(filectx).lit)
 }
@@ -1287,6 +1405,8 @@ get_tok_precedence :: proc(filectx: ^FileContext) -> int {
         return 40
     case .LT, .GT:
         return 10
+    case .EQ, .PLUS_EQ, .MINUS_EQ:
+        return 5
     }
     return -1
 }
@@ -1315,13 +1435,31 @@ parse_rhs :: proc(filectx: ^FileContext, precedence: int, lhs: ^AstNode) -> (^As
             rhs, rhs_ok = parse_rhs(filectx, tok_pre + 1, rhs)
         }
 
-        binexpr := newnode(BinaryExpr)
-        binexpr.as_expr = binexpr
-        binexpr.operator = op
-        binexpr.lhs = lhs.as.(^ExprStmt).expr
-        binexpr.rhs = rhs.as.(^ExprStmt).expr
+        #partial switch op.type {
+        case .MINUS_EQ, .PLUS_EQ, .EQ:
+            node := newnode(AssignStmt)
+            node.as_stmt = node
+            node.lhs = lhs.as.(^ExprStmt).expr
+            node.rhs = rhs.as.(^ExprStmt).expr
+            flags := bit_set[AssignFlag]{}
 
-        return newstmtnode(binexpr), true
+            #partial switch op.type {
+            case .PLUS_EQ:
+                flags += {.PLUS}
+            case .MINUS_EQ:
+                flags += {.MINUS}
+            }
+            node.flags = flags
+            return node, true
+        case:
+            binexpr := newnode(BinaryExpr)
+            binexpr.as_expr = binexpr
+            binexpr.operator = op
+            binexpr.lhs = lhs.as.(^ExprStmt).expr
+            binexpr.rhs = rhs.as.(^ExprStmt).expr
+            return newstmtnode(binexpr), true
+        }
+
     }
 }
 
@@ -1543,6 +1681,11 @@ transpile_cpp :: proc(filectx: ^FileContext, transpiler: Transpiler) -> bool {
             } else {
                 return try_to_infer(filectx, v.expr)
             }
+        case ^ArrayTypeExpr:
+            return try_to_infer(filectx, v.type)
+        case ^ArrayIndexExpr:
+            type, _ := try_to_infer(filectx, v.pre)
+            return type, true
         }
         return "", false
     }
@@ -1697,7 +1840,18 @@ transpile_cpp :: proc(filectx: ^FileContext, transpiler: Transpiler) -> bool {
             type, _ = try_to_infer(filectx, expr.type)
             filectx.parser.is_type_parse = false
         }
-        decl_write(transpiler, "{} {} = ", type, expr.name.lit)
+
+        if array, ok := expr.expr.as_expr.(^ArrayTypeExpr); ok {
+            if array.len != nil {
+                decl_write(transpiler, "{} {}[", type, expr.name.lit)
+                transpile_expr(filectx, transpiler, array.len)
+                decl_write(transpiler, "] = ")
+            } else {
+                decl_write(transpiler, "{} {}[] = ", type, expr.name.lit)
+            }
+        } else {
+            decl_write(transpiler, "{} {} = ", type, expr.name.lit)
+        }
         transpile_expr(filectx, transpiler, expr.expr)
         if filectx.transpiler.add_semicolon {
             decl_write(transpiler, ";\n")
@@ -1750,6 +1904,25 @@ transpile_cpp :: proc(filectx: ^FileContext, transpiler: Transpiler) -> bool {
         transpile_expr(filectx, transpiler, expr.expr)
     }
 
+    transpile_array_type_expr :: proc(filectx: ^FileContext, transpiler: Transpiler, expr: ^ArrayTypeExpr) {
+        decl_write(transpiler, "{{")
+        for i in 0 ..< len(expr.value_list) {
+            exp := expr.value_list[i]
+            transpile_expr(filectx, transpiler, exp)
+            if i < len(expr.value_list) - 1 {
+                decl_write(transpiler, ",\n")
+            }
+        }
+        decl_write(transpiler, "}}")
+    }
+
+    transpile_array_index_expr :: proc(filectx: ^FileContext, transpiler: Transpiler, expr: ^ArrayIndexExpr) {
+        transpile_expr(filectx, transpiler, expr.pre)
+        decl_write(transpiler, "[")
+        transpile_expr(filectx, transpiler, expr.index)
+        decl_write(transpiler, "]")
+    }
+
     transpile_expr :: proc(filectx: ^FileContext, transpiler: Transpiler, expr: ^Expr) {
         switch it in expr.as_expr {
         case ^FnCallExpr:
@@ -1768,6 +1941,11 @@ transpile_cpp :: proc(filectx: ^FileContext, transpiler: Transpiler) -> bool {
             transpile_pointer_expr(filectx, transpiler, it)
         case ^AutoCastExpr:
             transpile_auto_cast_expr(filectx, transpiler, it)
+        case ^ArrayTypeExpr:
+            transpile_array_type_expr(filectx, transpiler, it)
+        case ^ArrayIndexExpr:
+            transpile_array_index_expr(filectx, transpiler, it)
+
         }
     }
 
