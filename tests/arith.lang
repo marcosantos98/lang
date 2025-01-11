@@ -1,12 +1,12 @@
 import "std.lang"
 
 main :: void() {
-    i := 30 + 30
-    j := 30 - 1
-    l := 10 * 2
-    m := 2 / 2
-    p := i < j
-    g := j > l
-    k := l % 2
+    var i = 30 + 30
+    var j = 30 - 1
+    var l = 10 * 2
+    var m = 2 / 2
+    var p = i < j
+    var g = j > l
+    var k = l % 2
     exit(i)
 }

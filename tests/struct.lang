@@ -10,9 +10,9 @@ struct Foo {
 }
 
 main :: void() {
-   foo := Foo{10, 20}
+   var foo = Foo{10, 20}
 
-   b: int = foo.baz
+   var b: int = foo.baz
 
    putd(foo.bar)
    puts("")

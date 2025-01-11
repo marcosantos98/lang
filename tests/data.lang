@@ -6,7 +6,7 @@ example :: void(a int*) {
 
 main :: void() {
 
-    a := 1
+    var a = 1
     putd(a)
     puts("")
     example(&a)

@@ -5,7 +5,7 @@ extern "c" exit :: int(code int)
 
 putd :: void(d int) {
     if d > 9 {
-	a := d / 10
+	var a = d / 10
 	d -= 10 * a
 	putd(a)
     }
