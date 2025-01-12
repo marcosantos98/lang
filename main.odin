@@ -1376,12 +1376,14 @@ parse_primary :: proc(filectx: ^FileContext) -> (^AstNode, bool) {
         return parse_block_stmt(filectx)
     case .AMPERSAND:
         {
+            trace("AMPERSAND")
             filectx.parser.is_pointer = true
             adv(filectx) // &
             return parse_primary(filectx)
         }
     case .ASTERISK:
         {
+            trace("ASTERISK")
             filectx.parser.is_deref = true
             adv(filectx) // *
             return parse_primary(filectx)
@@ -1417,18 +1419,15 @@ parse_rhs :: proc(filectx: ^FileContext, precedence: int, lhs: ^AstNode) -> (^As
         if tok_pre < precedence {
             return lhs, true
         }
-        trace("ParseRHS")
-
+        trace("ParseRHS {} {}", tok(filectx).lit, tok_pre)
         op := tok(filectx)
         adv(filectx)
 
-        filectx.parser.as_expr = true
         rhs, rhs_ok := parse_primary(filectx)
         if !rhs_ok {
             fmt.println("Parse: failed to parse rhs.")
             return nil, false
         }
-        filectx.parser.as_expr = false
 
         next_pre := get_tok_precedence(filectx)
         if tok_pre < next_pre {
