@@ -35,5 +35,8 @@ putd(ns[0]);
 int* z = &ns[1];
 puts("");
 print(*z);
+*z += 1;
+puts("");
+putd(*z);
 }
 int main(int argc, char** argv) {___entry___();}
