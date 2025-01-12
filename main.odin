@@ -602,6 +602,24 @@ newstmtnode :: proc(type: $T) -> ^ExprStmt {
     return stmt
 }
 
+prev_tok :: proc(filectx: ^FileContext) -> Token {
+    if filectx.cursor - 1 < 0 {
+        panic("Prev tokens out of founds!")
+    }
+    return filectx.tokens[filectx.cursor - 1]
+}
+
+is_unary_context :: proc(filectx: ^FileContext) -> bool {
+    prev_tok := prev_tok(filectx)
+    return(
+        prev_tok.type == .OPEN_PAREN ||
+        prev_tok.type == .CLOSE_PAREN ||
+        prev_tok.type == .COMMA ||
+        prev_tok.type == .EQ ||
+        prev_tok.type == .PLUS_EQ ||
+        prev_tok.type == .MINUS_EQ \
+    )
+}
 // ;putils
 
 parse_import_stmt :: proc(filectx: ^FileContext) -> (^AstNode, bool) {
@@ -1416,7 +1434,7 @@ get_tok_precedence :: proc(filectx: ^FileContext) -> int {
 parse_rhs :: proc(filectx: ^FileContext, precedence: int, lhs: ^AstNode) -> (^AstNode, bool) {
     for {
         tok_pre := get_tok_precedence(filectx)
-        if tok_pre < precedence {
+        if tok_pre < precedence || is_unary_context(filectx) {
             return lhs, true
         }
         trace("ParseRHS {} {}", tok(filectx).lit, tok_pre)
