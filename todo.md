@@ -1,7 +1,17 @@
-- Improve error handling. Currently I'm using runtime asserts.
-- Package definitions to help with transpile. add package name to begin of each module declaration
-- Currently the extern libname isnt used at all
-- Add positions to expressions?
-- Allow empty init/cond/post in for loop statement
-- Single token expression should be placed into a single statement
-- Type inference from struct fields
+- UX
+    - [ ] Improve error handling. Currently I'm using runtime asserts.
+    - [ ] Check clang, use clang automagiccly
+    - [ ] Autolink libraries using the provided libname in extern
+- Translation
+    - [ ] Package definitions to help with transpile. add package name to begin of each module declaration
+    - [ ] Currently the extern libname isnt used at all
+    - [ ] Type inference from struct fields
+        - This should be moved to typecheker
+    - [ ] Imported files
+        - [ ] Files are copied into provided main files and could be accessed only if used to remove unneccessary code
+        - [ ] Currently leaks due to need of keep definitions
+- Parser
+    - [ ] Add positions to expressions?
+    - [ ] Allow empty init/cond/post in for loop statement
+    - [ ] Single token expression should be placed into a single statement
+    - [ ] Expandable arguments
