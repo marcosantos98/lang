@@ -28,6 +28,7 @@ FileContext :: struct {
         defines:         strings.Builder,
         decl:            strings.Builder,
         top_level:       strings.Builder,
+        str_cnt:         int,
         cur_fn_decl:     string,
         cur_var_decl:    string,
         var_name:        string,
@@ -402,6 +403,7 @@ FnCallExpr :: struct {
     using expr: Expr,
     name:       Token,
     args:       []^Expr,
+    is_stmt:    bool,
 }
 
 StructFieldExpr :: struct {
@@ -760,6 +762,8 @@ parse_fn_call_expr :: proc(filectx: ^FileContext) -> (^AstNode, bool) {
     trace("FnCallExpr ({})", name.lit)
     adv(filectx) // name
 
+    is_stmt := filectx.parser.as_expr
+
     fmt.assertf(tok(filectx).type == .OPEN_PAREN, "Expect '(' after function name, found {}", tok(filectx).lit)
     adv(filectx) // (
 
@@ -771,11 +775,9 @@ parse_fn_call_expr :: proc(filectx: ^FileContext) -> (^AstNode, bool) {
             tok(filectx).lit,
         )
         // FIXME: maybe only parse expr?
-        if expr, ok := int_parse(filectx); ok {
-            append(&args, expr.as.(^ExprStmt).expr)
-        } else {
-            return {}, false
-        }
+
+        expr := parse_as_stmt_expr_or(filectx, "Failed to parse function call argument")
+        append(&args, expr)
 
         if tok(filectx).type == .COMMA {
             adv(filectx) // ,
@@ -788,6 +790,7 @@ parse_fn_call_expr :: proc(filectx: ^FileContext) -> (^AstNode, bool) {
     fn_call.as_expr = fn_call
     fn_call.name = name
     fn_call.args = args[:]
+    fn_call.is_stmt = is_stmt
 
     return newstmtnode(fn_call), true
 }
@@ -1291,7 +1294,7 @@ try_parse_identifier :: proc(filectx: ^FileContext) -> (^AstNode, bool) {
         return parse_pointer_expr(filectx)
     } else if next_two_are(filectx, .COLON, .COLON) {
         return parse_fn_decl_stmt(filectx)
-    } else if !filectx.parser.is_arr && next_is(filectx, .OPEN_CBRACKET) {
+    } else if !filectx.parser.is_arr && !filectx.parser.as_expr && next_is(filectx, .OPEN_CBRACKET) {
         return parse_struct_init_expr(filectx)
     } else if !filectx.parser.as_expr && next_is(filectx, .OPEN_SQRB) {
         return parse_array_index_expr(filectx)
@@ -1449,11 +1452,13 @@ parse_rhs :: proc(filectx: ^FileContext, precedence: int, lhs: ^AstNode) -> (^As
         op := tok(filectx)
         adv(filectx)
 
+        filectx.parser.as_expr = true
         rhs, rhs_ok := parse_primary(filectx)
         if !rhs_ok {
             fmt.println("Parse: failed to parse rhs.")
             return nil, false
         }
+        filectx.parser.as_expr = false
 
         next_pre := get_tok_precedence(filectx)
         if tok_pre < next_pre {
@@ -1556,7 +1561,7 @@ Transpiler :: struct {
     decl, defines, top_level: ^strings.Builder,
 }
 
-transpile_cpp :: proc(filectx: ^FileContext, transpiler: Transpiler) -> bool {
+transpile_cpp :: proc(filectx: ^FileContext, transpiler: Transpiler, builtin := false) -> bool {
 
     filectx.transpiler.add_semicolon = true
     filectx.transpiler.write_state = .DECL
@@ -1645,26 +1650,64 @@ transpile_cpp :: proc(filectx: ^FileContext, transpiler: Transpiler) -> bool {
     }
 
     transpile_fn_call_expr :: proc(filectx: ^FileContext, transpiler: Transpiler, expr: ^FnCallExpr) {
-        decl_write(transpiler, "{}(", expr.name.lit)
-
-        filectx.transpiler.is_fn_call_arg = true
-        for i in 0 ..< len(expr.args) {
-            it := expr.args[i]
-            filectx.transpiler.arg_type = filectx.transpiler.functions[expr.name.lit].args[i]
-            transpile_expr(filectx, transpiler, it)
-            if i != len(expr.args) - 1 {
-                decl_write(transpiler, ", ")
+        if expr.name.lit != "len" {
+            decl_write(transpiler, "{}(", expr.name.lit)
+            for i in 0 ..< len(expr.args) {
+                it := expr.args[i]
+                filectx.transpiler.arg_type = filectx.transpiler.functions[expr.name.lit].args[i]
+                filectx.transpiler.is_fn_call_arg = true
+                transpile_expr(filectx, transpiler, it)
+                filectx.transpiler.is_fn_call_arg = false
+                if i != len(expr.args) - 1 {
+                    decl_write(transpiler, ", ")
+                }
+            }
+            decl_write(transpiler, ")")
+            if !expr.is_stmt {decl_write(transpiler, ";\n")}
+        } else {
+            if type, ok := try_to_infer(filectx, expr.args[0]); ok {
+                switch type {
+                case "String":
+                    decl_write(transpiler, "len_str(")
+                    filectx.transpiler.is_fn_call_arg = true
+                    transpile_expr(filectx, transpiler, expr.args[0])
+                    filectx.transpiler.is_fn_call_arg = false
+                    decl_write(transpiler, ")\n")
+                case:
+                    fmt.panicf("type {} not implemented for len", type)
+                }
+            } else {
+                panic("couldn't infer type for len function")
             }
         }
-        filectx.transpiler.is_fn_call_arg = false
-        decl_write(transpiler, ");\n")
+
     }
 
     transpile_lit_expr :: proc(filectx: ^FileContext, transpiler: Transpiler, expr: ^LiteralExpr) {
         switch expr.type {
         case .STRING:
             // FIXME: assuming always used in declaration
-            decl_write(transpiler, "\"{}\"", expr.lit.lit)
+            if expr.lit.lit == "" {
+                decl_write(transpiler, "(cstr)___empty_string___.data")
+            } else {
+                if filectx.transpiler.is_fn_call_arg {
+                    def_write(
+                        transpiler,
+                        "static String ___str_{}___ = {{(void*)\"{}\", {}}};\n",
+                        filectx.transpiler.str_cnt,
+                        expr.lit.lit,
+                        len(expr.lit.lit),
+                    )
+                    if filectx.transpiler.arg_type == "cstr" {
+                        decl_write(transpiler, "(cstr)___str_{}___.data", filectx.transpiler.str_cnt)
+                    } else if filectx.transpiler.arg_type == "String" {
+                        decl_write(transpiler, "___str_{}___", filectx.transpiler.str_cnt)
+                    }
+                    filectx.transpiler.str_cnt += 1
+                } else {
+                    decl_write(transpiler, "make_string(\"{}\", {})", expr.lit.lit, len(expr.lit.lit))
+                }
+            }
         case .NUMBER, .BOOL:
             decl_write(transpiler, "{}", expr.lit.lit)
         }
@@ -1681,7 +1724,7 @@ transpile_cpp :: proc(filectx: ^FileContext, transpiler: Transpiler) -> bool {
         case ^LiteralExpr:
             switch v.type {
             case .STRING:
-                return "cstr", true
+                return "String", true
             case .NUMBER:
                 // FIXME: Number is hardcoded to int
                 return "int", true
@@ -1691,7 +1734,7 @@ transpile_cpp :: proc(filectx: ^FileContext, transpiler: Transpiler) -> bool {
         case ^VarExpr:
             trace("Infering from VarExpr")
             if v.name.lit in filectx.transpiler.vars {
-                return v.is_pointer ? fmt.tprintf("{}*", filectx.transpiler.vars[v.name.lit]) : filectx.transpiler.vars[v.name.lit].type,
+                return v.is_pointer ? fmt.tprintf("{}*", filectx.transpiler.vars[v.name.lit].type) : filectx.transpiler.vars[v.name.lit].type,
                     true
             } else if v.name.lit in filectx.transpiler.functions[filectx.transpiler.cur_fn_decl].scope_vars {
                 return filectx.transpiler.functions[filectx.transpiler.cur_fn_decl].scope_vars[v.name.lit].type, true
@@ -1746,14 +1789,22 @@ transpile_cpp :: proc(filectx: ^FileContext, transpiler: Transpiler) -> bool {
             fmt = "{}"
         }
 
-        switch filectx.transpiler.write_state {
-        case .DEFINE:
-            panic("Not implemented")
-        case .TOP_LEVEL:
-            top_write(transpiler, fmt, stmt.name.lit)
-        case .DECL:
-            decl_write(transpiler, fmt, stmt.name.lit)
+        // Check if is string and in fn_arg
+        if filectx.transpiler.is_fn_call_arg &&
+           filectx.transpiler.arg_type == "cstr" &&
+           filectx.transpiler.vars[stmt.name.lit].type == "String" {
+            write(filectx, transpiler, "(cstr){}.data", stmt.name.lit)
+        } else {
+            switch filectx.transpiler.write_state {
+            case .DEFINE:
+                panic("Not implemented")
+            case .TOP_LEVEL:
+                top_write(transpiler, fmt, stmt.name.lit)
+            case .DECL:
+                decl_write(transpiler, fmt, stmt.name.lit)
+            }
         }
+
         filectx.transpiler.var_name = stmt.name.lit
     }
 
@@ -2080,7 +2131,7 @@ transpile_cpp :: proc(filectx: ^FileContext, transpiler: Transpiler) -> bool {
         trans.top_level = &filectx.transpiler.top_level
         trans.defines = &filectx.transpiler.defines
 
-        if !transpile_cpp(&path_file, trans) {
+        if !transpile_cpp(&path_file, trans, builtin = true) {
             return false
         }
 
@@ -2096,6 +2147,12 @@ transpile_cpp :: proc(filectx: ^FileContext, transpiler: Transpiler) -> bool {
         return true
     }
 
+    if !builtin {
+        // :builtin
+        def_write(transpiler, "/* --------------- Builtin ---------------- */")
+        def_write(transpiler, "{}", string_definitions)
+        def_write(transpiler, "/* --------------- Builtin ---------------- */\n")
+    }
     // deal with imports
     for expr in filectx.ast {
         if import_expr, ok := expr.as.(^ImportDeclStmt); ok {
