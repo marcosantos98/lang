@@ -7,13 +7,15 @@ main :: void() {
 	puts("Hello, World")
     }
 
-    var k = 100
+    var k = 10
     if k > 10 {
 	puts("K is greater than 10")
     } else if k < 10 {
 	puts("K is less than 10")
     } else {
-	puts("K is 10")
+	puts("K is")
+	putd(k)
+	puts("")
     }
 
     while i < 2 {
@@ -22,7 +24,8 @@ main :: void() {
     }
 
     for var j = 0; j < 10; j += 1 {
-	puts("TODO: add print number or printf support")
+	putd(j)
+	puts("")
     }
 
     var l = 0
