@@ -24,29 +24,40 @@ FileContext :: struct {
     tokens:     []Token,
     ast:        []^AstNode,
     transpiler: struct {
-        has_main:       bool,
-        defines:        strings.Builder,
-        decl:           strings.Builder,
-        top_level:      strings.Builder,
-        cur_fn_decl:    string,
-        functions:      map[string]struct {
+        has_main:        bool,
+        defines:         strings.Builder,
+        decl:            strings.Builder,
+        top_level:       strings.Builder,
+        cur_fn_decl:     string,
+        cur_var_decl:    string,
+        var_name:        string,
+        functions:       map[string]struct {
             type:       string,
-            scope_vars: map[string]string,
+            scope_vars: map[string]struct {
+                type:    string,
+                pointer: bool,
+            },
             args:       []string,
         },
-        vars:           map[string]string,
-        structs:        map[string]struct {
+        vars:            map[string]struct {
+            type:    string,
+            pointer: bool,
+        },
+        structs:         map[string]struct {
             name:   string,
             fields: map[string]string,
         },
-        add_semicolon:  bool,
-        write_state:    enum {
+        add_semicolon:   bool,
+        write_state:     enum {
             DECL,
             DEFINE,
             TOP_LEVEL,
         },
-        is_fn_call_arg: bool,
-        arg_type:       string,
+        is_fn_call_arg:  bool,
+        arg_type:        string,
+        is_struct_field: bool,
+        struct_name:     string,
+        struct_field:    string,
     },
     file:       struct {
         file_path: string,
@@ -820,7 +831,7 @@ parse_fn_decl_stmt :: proc(filectx: ^FileContext) -> (^AstNode, bool) {
             tok(filectx).lit,
         )
         fmt.assertf(
-            tok(filectx).type == .IDENTIFIER && next_is(filectx, .IDENTIFIER),
+            tok(filectx).type == .IDENTIFIER,
             "Expect proc parameters (name + type), found {}",
             tok(filectx).lit,
         )
@@ -986,13 +997,15 @@ parse_struct_field_expr :: proc(filectx: ^FileContext) -> (^AstNode, bool) {
 
     adv(filectx) // .
 
-    field: ^Expr
-    if field_, ok := int_parse(filectx); ok {
-        field = field_.as.(^ExprStmt).expr
-    } else {
-        fmt.println("Failed to parse struct field field")
-        return nil, false
-    }
+    field := parse_as_lhs_expr_or(filectx, "Failed to parse struct field")
+
+    //    field: ^Expr
+    //    if field_, ok := int_parse(filectx); ok {
+    //        field = field_.as.(^ExprStmt).expr
+    //    } else {
+    //        fmt.println("Failed to parse struct field field")
+    //        return nil, false
+    //    }
 
     node := newnode(StructFieldExpr)
     node.as_expr = node
@@ -1156,11 +1169,7 @@ parse_struct_decl_stmt :: proc(filectx: ^FileContext) -> (^AstNode, bool) {
             "Expect either struct fields or `}`, found end of file",
             tok(filectx).lit,
         )
-        fmt.assertf(
-            tok(filectx).type == .IDENTIFIER && next_is(filectx, .IDENTIFIER),
-            "Expect struct field (name + type), found {}",
-            tok(filectx).lit,
-        )
+        fmt.assertf(tok(filectx).type == .IDENTIFIER, "Expect struct field (name + type), found {}", tok(filectx).lit)
         arg_name := tok(filectx)
         adv(filectx) // arg_name
 
@@ -1349,28 +1358,27 @@ parse_arr_type_expr :: proc(filectx: ^FileContext) -> (^AstNode, bool) {
     type := parse_as_stmt_expr_or(filectx, "Failed to parse array type.")
     filectx.parser.is_arr = false
 
-    fmt.assertf(
-        tok(filectx).type == .OPEN_CBRACKET,
-        "{} Expected `{{` after array type found `{}`.",
-        tokloc(filectx),
-        tok(filectx).lit,
-    )
+    value_list: [dynamic]^Expr
+    if tok(filectx).type == .OPEN_CBRACKET {
+        adv(filectx) // {
+        value_list = make([dynamic]^Expr, context.temp_allocator)
+        for tok(filectx).type != .CLOSE_CBRACKET {
+            fmt.assertf(
+                tok(filectx).type != .EOF,
+                "Expect value or block close `}`, found end of file",
+                tok(filectx).lit,
+            )
 
-    adv(filectx) // {
+            value := parse_as_stmt_expr_or(filectx, "Failed to parse array value")
+            append(&value_list, value)
 
-    value_list := make([dynamic]^Expr, context.temp_allocator)
-    for tok(filectx).type != .CLOSE_CBRACKET {
-        fmt.assertf(tok(filectx).type != .EOF, "Expect value or block close `}`, found end of file", tok(filectx).lit)
-
-        value := parse_as_stmt_expr_or(filectx, "Failed to parse array value")
-        append(&value_list, value)
-
-        if tok(filectx).type == .COMMA {
-            adv(filectx) // ,
+            if tok(filectx).type == .COMMA {
+                adv(filectx) // ,
+            }
         }
-    }
 
-    adv(filectx) // }
+        adv(filectx) // }
+    }
 
     node := newnode(ArrayTypeExpr)
     node.as_expr = node
@@ -1576,7 +1584,10 @@ transpile_cpp :: proc(filectx: ^FileContext, transpiler: Transpiler) -> bool {
                 arg := expr.params[i]
                 arg_type, _ := try_to_infer(filectx, arg.type)
                 append(&args, arg_type)
+                filectx.transpiler.is_fn_call_arg = true
+                filectx.transpiler.write_state = .TOP_LEVEL
                 transpile_expr(filectx, transpiler, arg.type)
+                filectx.transpiler.is_fn_call_arg = false
                 if i != len(expr.params) - 1 {
                     top_write(transpiler, ", ")
                 }
@@ -1596,7 +1607,10 @@ transpile_cpp :: proc(filectx: ^FileContext, transpiler: Transpiler) -> bool {
                 arg := expr.params[i]
                 arg_type, _ := try_to_infer(filectx, arg.type)
                 append(&args, arg_type)
+                filectx.transpiler.is_fn_call_arg = true
+                filectx.transpiler.write_state = .TOP_LEVEL
                 transpile_expr(filectx, transpiler, arg.type)
+                filectx.transpiler.is_fn_call_arg = false
                 if i != len(expr.params) - 1 {
                     top_write(transpiler, ", ")
                 }
@@ -1605,12 +1619,20 @@ transpile_cpp :: proc(filectx: ^FileContext, transpiler: Transpiler) -> bool {
             filectx.transpiler.write_state = .DECL
 
             // implementation
-            scope_vars := make(map[string]string, context.temp_allocator)
+            scope_vars := make(map[string]struct {
+                    type:    string,
+                    pointer: bool,
+                }, context.temp_allocator)
             decl_write(transpiler, "{} {}(", type, fn_name)
             for i in 0 ..< len(expr.params) {
                 arg := expr.params[i]
+                filectx.transpiler.is_fn_call_arg = true
                 arg_type, _ := try_to_infer(filectx, arg.type)
-                scope_vars[arg.name.lit] = arg_type
+                filectx.transpiler.is_fn_call_arg = false
+                scope_vars[arg.name.lit] = struct {
+                    type:    string,
+                    pointer: bool,
+                }{arg_type, strings.contains(arg_type, "*")}
                 decl_write(transpiler, "{} {}", arg_type, arg.name.lit)
                 if i != len(expr.params) - 1 {
                     decl_write(transpiler, ", ")
@@ -1669,10 +1691,10 @@ transpile_cpp :: proc(filectx: ^FileContext, transpiler: Transpiler) -> bool {
         case ^VarExpr:
             trace("Infering from VarExpr")
             if v.name.lit in filectx.transpiler.vars {
-                return v.is_pointer ? fmt.tprintf("{}*", filectx.transpiler.vars[v.name.lit]) : filectx.transpiler.vars[v.name.lit],
+                return v.is_pointer ? fmt.tprintf("{}*", filectx.transpiler.vars[v.name.lit]) : filectx.transpiler.vars[v.name.lit].type,
                     true
             } else if v.name.lit in filectx.transpiler.functions[filectx.transpiler.cur_fn_decl].scope_vars {
-                return filectx.transpiler.functions[filectx.transpiler.cur_fn_decl].scope_vars[v.name.lit], true
+                return filectx.transpiler.functions[filectx.transpiler.cur_fn_decl].scope_vars[v.name.lit].type, true
             } else if v.name.lit in filectx.transpiler.structs {
                 return v.name.lit, true
             } else {
@@ -1695,10 +1717,17 @@ transpile_cpp :: proc(filectx: ^FileContext, transpiler: Transpiler) -> bool {
         case ^AutoCastExpr:
             if filectx.transpiler.is_fn_call_arg {
                 return filectx.transpiler.arg_type, true
+            } else if filectx.transpiler.is_struct_field {
+                structt := filectx.transpiler.vars[filectx.transpiler.struct_name].type
+                return filectx.transpiler.structs[structt].fields[filectx.transpiler.struct_field], true
             } else {
                 return try_to_infer(filectx, v.expr)
             }
         case ^ArrayTypeExpr:
+            if filectx.transpiler.is_fn_call_arg {
+                type, _ := try_to_infer(filectx, v.type)
+                return fmt.tprintf("{}*", type), true
+            }
             return try_to_infer(filectx, v.type)
         case ^ArrayIndexExpr:
             type, _ := try_to_infer(filectx, v.pre)
@@ -1725,6 +1754,7 @@ transpile_cpp :: proc(filectx: ^FileContext, transpiler: Transpiler) -> bool {
         case .DECL:
             decl_write(transpiler, fmt, stmt.name.lit)
         }
+        filectx.transpiler.var_name = stmt.name.lit
     }
 
     transpile_block_stmt :: proc(filectx: ^FileContext, transpiler: Transpiler, stmt: ^BlockStmt) {
@@ -1754,6 +1784,11 @@ transpile_cpp :: proc(filectx: ^FileContext, transpiler: Transpiler) -> bool {
     }
 
     transpile_assign_stmt :: proc(filectx: ^FileContext, transpiler: Transpiler, stmt: ^AssignStmt) {
+        if w, ok := stmt.lhs.as_expr.(^StructFieldExpr); ok {
+            filectx.transpiler.struct_name = w.who.as_expr.(^VarExpr).name.lit
+            filectx.transpiler.struct_field = w.field.as_expr.(^VarExpr).name.lit
+            filectx.transpiler.is_struct_field = true
+        }
         transpile_expr(filectx, transpiler, stmt.lhs)
         if AssignFlag.PLUS in stmt.flags {
             decl_write(transpiler, " += ")
@@ -1766,6 +1801,7 @@ transpile_cpp :: proc(filectx: ^FileContext, transpiler: Transpiler) -> bool {
         if filectx.transpiler.add_semicolon {
             decl_write(transpiler, ";\n")
         }
+        filectx.transpiler.is_struct_field = false
     }
 
     transpile_for_stmt :: proc(filectx: ^FileContext, transpiler: Transpiler, stmt: ^ForStmt) {
@@ -1869,12 +1905,14 @@ transpile_cpp :: proc(filectx: ^FileContext, transpiler: Transpiler) -> bool {
         } else {
             decl_write(transpiler, "{} {} = ", type, expr.name.lit)
         }
+        filectx.transpiler.cur_var_decl = expr.name.lit
         transpile_expr(filectx, transpiler, expr.expr)
         if filectx.transpiler.add_semicolon {
             decl_write(transpiler, ";\n")
         }
 
-        filectx.transpiler.vars[expr.name.lit] = type
+        // FIXME: Check if pointer
+        filectx.transpiler.vars[expr.name.lit] = {type, false}
     }
 
     transpile_binary_expr :: proc(filectx: ^FileContext, transpiler: Transpiler, expr: ^BinaryExpr) {
@@ -1897,7 +1935,15 @@ transpile_cpp :: proc(filectx: ^FileContext, transpiler: Transpiler) -> bool {
 
     transpile_struct_field_expr :: proc(filectx: ^FileContext, transpiler: Transpiler, expr: ^StructFieldExpr) {
         transpile_expr(filectx, transpiler, expr.who)
-        decl_write(transpiler, ".")
+        is_ptr := false
+        if filectx.transpiler.var_name in filectx.transpiler.vars {
+            is_ptr = filectx.transpiler.vars[filectx.transpiler.var_name].pointer
+        } else if filectx.transpiler.var_name in
+           filectx.transpiler.functions[filectx.transpiler.cur_fn_decl].scope_vars {
+            is_ptr =
+                filectx.transpiler.functions[filectx.transpiler.cur_fn_decl].scope_vars[filectx.transpiler.var_name].pointer
+        }
+        decl_write(transpiler, is_ptr ? "->" : ".")
         transpile_expr(filectx, transpiler, expr.field)
     }
 
@@ -1921,16 +1967,32 @@ transpile_cpp :: proc(filectx: ^FileContext, transpiler: Transpiler) -> bool {
         transpile_expr(filectx, transpiler, expr.expr)
     }
 
-    transpile_array_type_expr :: proc(filectx: ^FileContext, transpiler: Transpiler, expr: ^ArrayTypeExpr) {
-        decl_write(transpiler, "{{")
-        for i in 0 ..< len(expr.value_list) {
-            exp := expr.value_list[i]
-            transpile_expr(filectx, transpiler, exp)
-            if i < len(expr.value_list) - 1 {
-                decl_write(transpiler, ",\n")
-            }
+    write :: proc(filectx: ^FileContext, transpiler: Transpiler, fmt_: string, args: ..any) {
+        switch filectx.transpiler.write_state {
+        case .DECL:
+            decl_write(transpiler, fmt_, ..args)
+        case .DEFINE:
+            def_write(transpiler, fmt_, ..args)
+        case .TOP_LEVEL:
+            top_write(transpiler, fmt_, ..args)
         }
-        decl_write(transpiler, "}}")
+    }
+
+    transpile_array_type_expr :: proc(filectx: ^FileContext, transpiler: Transpiler, expr: ^ArrayTypeExpr) {
+        if !filectx.transpiler.is_fn_call_arg {
+            decl_write(transpiler, "{{")
+            for i in 0 ..< len(expr.value_list) {
+                exp := expr.value_list[i]
+                transpile_expr(filectx, transpiler, exp)
+                if i < len(expr.value_list) - 1 {
+                    decl_write(transpiler, ",\n")
+                }
+            }
+            decl_write(transpiler, "}}")
+        } else {
+            transpile_expr(filectx, transpiler, expr.type)
+            write(filectx, transpiler, "*")
+        }
     }
 
     transpile_array_index_expr :: proc(filectx: ^FileContext, transpiler: Transpiler, expr: ^ArrayIndexExpr) {
@@ -1989,7 +2051,10 @@ transpile_cpp :: proc(filectx: ^FileContext, transpiler: Transpiler) -> bool {
         path_file := FileContext{}
         path_file.transpiler.functions = make(map[string]struct {
                 type:       string,
-                scope_vars: map[string]string,
+                scope_vars: map[string]struct {
+                    type:    string,
+                    pointer: bool,
+                },
                 args:       []string,
             }, context.temp_allocator)
 
@@ -2047,7 +2112,9 @@ transpile_cpp :: proc(filectx: ^FileContext, transpiler: Transpiler) -> bool {
 
 
     if filectx.transpiler.has_main {
-        decl_write(transpiler, "int main(int argc, char** argv) {{___entry___();}}")
+        decl_write(transpiler, "int main(int argc, char** argv) {{\n")
+        decl_write(transpiler, "___entry___();\n")
+        decl_write(transpiler, "}}\n")
     }
 
     delete(filectx.transpiler.vars)
