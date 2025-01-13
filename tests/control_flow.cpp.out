@@ -1,6 +1,27 @@
 /* -- Builtin types -- */
 typedef const char* cstr;
 /* -- ------------- -- */
+/* --------------- Builtin ---------------- */
+struct String {
+    void* data;
+    int len;
+};
+static String ___empty_string___ = {(void*)"", 0};
+
+String make_string(const char* cstr, int len) {
+    return {(void*)cstr, len};
+}
+
+int len_str(String s) {
+    return s.len;
+}
+/* --------------- Builtin ---------------- */
+static String ___str_0___ = {(void*)"Hello, World", 12};
+static String ___str_1___ = {(void*)"K is greater than 10", 20};
+static String ___str_2___ = {(void*)"K is less than 10", 17};
+static String ___str_3___ = {(void*)"K is", 4};
+static String ___str_4___ = {(void*)"I is less than 2", 16};
+static String ___str_5___ = {(void*)"Should print 4 times", 20};
 
 extern "C" int puts(cstr);
 extern "C" int putchar(int);
@@ -19,28 +40,31 @@ putchar(48+d);
 void ___entry___(){
 int i = 0;
 if (i<10){
-puts("Hello, World");
+puts((cstr)___str_0___.data);
 }
-int k = 100;
+int k = 10;
 if (k>10){
-puts("K is greater than 10");
+puts((cstr)___str_1___.data);
 }
  else if (k<10){
-puts("K is less than 10");
+puts((cstr)___str_2___.data);
 }
  else {
-puts("K is 10");
+puts((cstr)___str_3___.data);
+putd(k);
+puts((cstr)___empty_string___.data);
 }
 while (i<2){
-puts("I is less than 2");
+puts((cstr)___str_4___.data);
 i += 1;
 }
 for(int j = 0;j<10;j += 1){
-puts("TODO: add print number or printf support");
+putd(j);
+puts((cstr)___empty_string___.data);
 }
 int l = 0;
 while (true){
-puts("Should print 4 times");
+puts((cstr)___str_5___.data);
 if (l<3){
 l += 1;
 }
@@ -49,4 +73,7 @@ break;
 }
 }
 }
-int main(int argc, char** argv) {___entry___();}
+int main(int argc, char** argv) {
+___entry___();
+}
+

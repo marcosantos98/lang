@@ -1,6 +1,21 @@
 /* -- Builtin types -- */
 typedef const char* cstr;
 /* -- ------------- -- */
+/* --------------- Builtin ---------------- */
+struct String {
+    void* data;
+    int len;
+};
+static String ___empty_string___ = {(void*)"", 0};
+
+String make_string(const char* cstr, int len) {
+    return {(void*)cstr, len};
+}
+
+int len_str(String s) {
+    return s.len;
+}
+/* --------------- Builtin ---------------- */
 
 extern "C" int puts(cstr);
 extern "C" int putchar(int);
@@ -30,13 +45,16 @@ int ns[10] = {0,
 ns[0] = 0;
 putd(ns[0]);
 add(&ns[0]);
-puts("");
+puts((cstr)___empty_string___.data);
 putd(ns[0]);
 int* z = &ns[1];
-puts("");
+puts((cstr)___empty_string___.data);
 print(*z);
 *z += 1;
-puts("");
+puts((cstr)___empty_string___.data);
 putd(*z);
 }
-int main(int argc, char** argv) {___entry___();}
+int main(int argc, char** argv) {
+___entry___();
+}
+

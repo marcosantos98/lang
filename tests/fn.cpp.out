@@ -1,6 +1,21 @@
 /* -- Builtin types -- */
 typedef const char* cstr;
 /* -- ------------- -- */
+/* --------------- Builtin ---------------- */
+struct String {
+    void* data;
+    int len;
+};
+static String ___empty_string___ = {(void*)"", 0};
+
+String make_string(const char* cstr, int len) {
+    return {(void*)cstr, len};
+}
+
+int len_str(String s) {
+    return s.len;
+}
+/* --------------- Builtin ---------------- */
 
 extern "C" int puts(cstr);
 int sum(int, int);
@@ -11,4 +26,7 @@ return a+b;
 }
 void ___entry___(){
 }
-int main(int argc, char** argv) {___entry___();}
+int main(int argc, char** argv) {
+___entry___();
+}
+
