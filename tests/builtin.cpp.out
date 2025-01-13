@@ -1,0 +1,43 @@
+/* -- Builtin types -- */
+typedef const char* cstr;
+/* -- ------------- -- */
+/* --------------- Builtin ---------------- */
+struct String {
+    void* data;
+    int len;
+};
+static String ___empty_string___ = {(void*)"", 0};
+
+String make_string(const char* cstr, int len) {
+    return {(void*)cstr, len};
+}
+
+int len_str(String s) {
+    return s.len;
+}
+/* --------------- Builtin ---------------- */
+
+extern "C" int puts(cstr);
+extern "C" int putchar(int);
+extern "C" int exit(int);
+void putd(int);
+void ___entry___();
+
+void putd(int d){
+if (d>9){
+int a = d/10;
+d -= 10*a;
+putd(a);
+}
+putchar(48+d);
+}
+void ___entry___(){
+String hello = make_string("Hello, World", 12);
+puts((cstr)hello.data);
+putd(len_str(hello)
+);
+}
+int main(int argc, char** argv) {
+___entry___();
+}
+
