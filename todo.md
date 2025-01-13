@@ -7,11 +7,19 @@
     - [ ] Currently the extern libname isnt used at all
     - [ ] Type inference from struct fields
         - This should be moved to typecheker
+        - Autocast doesn't work on struct fields
     - [ ] Imported files
         - [ ] Files are copied into provided main files and could be accessed only if used to remove unneccessary code
-        - [ ] Currently leaks due to need of keep definitions
+        - [ ] Currently leaks due to need of keep definitions!
+    - [ ] Fix: Getting types of struct fields with more than on layer deep breaks: `foo.bar.baz`
+    - [ ] Fix: `fncall(fncall2())` breaks cause transpiler places `;` at argument level
 - Parser
     - [ ] Add positions to expressions?
     - [ ] Allow empty init/cond/post in for loop statement
     - [ ] Single token expression should be placed into a single statement
     - [ ] Expandable arguments
+    - [ ] Fix: `<` has lower precedence than `+`
+    - [ ] Allow symbols on identifiers like: _, 0-9
+    - [ ] Allow functions on structs
+    - [ ] Add: ==, !, <=, >=
+    - [ ] Change StructFieldExpr to SelectorExpr and allow `fncall().x`
