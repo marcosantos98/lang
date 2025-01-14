@@ -1,0 +1,8 @@
+import "std.lang"
+
+main :: void() {
+    var hello = "Hello, World"
+
+    puts(hello)
+    putd(len(hello))
+}

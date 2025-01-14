@@ -32,14 +32,10 @@ putd(a);
 putchar(48+d);
 }
 void ___entry___(){
-int i = 30+30;
-int j = 30-1;
-int l = 10*2;
-int m = 2/2;
-bool p = i<j;
-bool g = j>l;
-int k = l%2;
-exit(i);
+String hello = make_string("Hello, World", 12);
+puts((cstr)hello.data);
+putd(len_str(hello)
+);
 }
 int main(int argc, char** argv) {
 ___entry___();
