@@ -129,7 +129,10 @@ tokenize :: proc(file_context: ^FileContext) -> bool {
 
     tokenize_word :: proc(file_ctx: ^FileContext, cursor: int) -> int {
         end := cursor
-        for !is_eof(file_ctx, end) && is_letter(file_ctx.file.content[end]) {
+        for !is_eof(file_ctx, end) &&
+            (is_letter(file_ctx.file.content[end]) ||
+                    is_digit(file_ctx.file.content[end]) ||
+                    file_ctx.file.content[end] == '_') {
             end += 1
         }
         return end

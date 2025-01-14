@@ -19,7 +19,10 @@
     - [ ] Single token expression should be placed into a single statement
     - [ ] Expandable arguments
     - [ ] Fix: `<` has lower precedence than `+`
-    - [ ] Allow symbols on identifiers like: _, 0-9
+    - [x] Allow symbols on identifiers like: _, 0-9
     - [ ] Allow functions on structs
     - [ ] Add: ==, !, <=, >=
     - [ ] Change StructFieldExpr to SelectorExpr and allow `fncall().x`
+- Testing
+    - [ ] Maybe remove the translation tests
+    - [ ] Add test for compiled executable output
