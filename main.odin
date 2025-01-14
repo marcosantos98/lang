@@ -7,6 +7,7 @@ import "core:os"
 import "core:path/filepath"
 import "core:slice"
 import "core:strings"
+import "core:sys/windows"
 
 _ :: slice
 _ :: filepath
@@ -2286,6 +2287,62 @@ do_all_passes_on_file :: proc(filectx: ^FileContext, out := true) -> bool {
     return true
 }
 
+ExecOption :: enum {
+    GARBAGE_OUT,
+    DONT_HURT_ON_FAIL,
+}
+ExecOptions :: bit_set[ExecOption]
+
+exec :: proc(cmd: string, opts := ExecOptions{}) -> bool {
+    when ODIN_OS == .Windows {
+        si: windows.STARTUPINFOW
+
+        if .GARBAGE_OUT in opts {
+            nul: windows.HANDLE
+            nul = windows.CreateFileW(
+                windows.utf8_to_wstring("nul"),
+                windows.GENERIC_WRITE,
+                windows.FILE_SHARE_WRITE,
+                nil,
+                windows.OPEN_EXISTING,
+                windows.FILE_ATTRIBUTE_NORMAL,
+                nil,
+            )
+            if nul == windows.INVALID_HANDLE_VALUE {
+                panic("Failed to open null device")
+            }
+            si.dwFlags |= windows.STARTF_USESTDHANDLES
+            si.hStdOutput = nul
+            si.hStdError = nul
+        }
+
+        pi: windows.PROCESS_INFORMATION
+        if !windows.CreateProcessW(nil, windows.utf8_to_wstring(cmd), nil, nil, false, 0, nil, nil, &si, &pi) {
+            if .DONT_HURT_ON_FAIL in opts {
+                return false
+            } else {
+                panic("Failed to create process clang++")
+            }
+        } else {
+            fmt.println("Running", cmd)
+        }
+
+        windows.WaitForSingleObject(pi.hProcess, windows.INFINITE)
+
+        exit_code: windows.DWORD
+        if !windows.GetExitCodeProcess(pi.hProcess, &exit_code) {
+            panic("Failed to get exit code!")
+        }
+
+        windows.CloseHandle(pi.hProcess)
+        windows.CloseHandle(pi.hThread)
+    } else {
+        fmt.panicf("Implement exec on {}", ODIN_OS)
+    }
+
+    return true
+}
+
 main :: proc() {
 
     if len(os.args) == 1 {
@@ -2293,6 +2350,10 @@ main :: proc() {
         return
     }
 
+    if !exec("clang++ --version", {.GARBAGE_OUT, .DONT_HURT_ON_FAIL}) {
+        fmt.eprintln("Error: Didn't find `clang++`. Be sure to have it on path and installed.")
+        return
+    }
     // FIXME: dehardcode when more options
     path := os.args[1]
     filectx := FileContext{}
@@ -2301,6 +2362,7 @@ main :: proc() {
     if !do_all_passes_on_file(&filectx) {
         return
     }
+    exec(fmt.tprintf("clang++ {}", filectx.file.cpp_path))
 
     strings.builder_destroy(&filectx.transpiler.defines)
     strings.builder_destroy(&filectx.transpiler.decl)
