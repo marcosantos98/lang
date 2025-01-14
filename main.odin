@@ -2187,7 +2187,18 @@ transpile_cpp :: proc(filectx: ^FileContext, transpiler: Transpiler, builtin := 
 // ;transpile
 
 print_usage :: proc() {
-    fmt.printfln("Usage: lang <filename>")
+    fmt.println("Usage: lang command [options]")
+    fmt.println("")
+    fmt.println("Commands:")
+    fmt.println("	run <filename>.lang")
+    fmt.println("	  Options:")
+    fmt.println("		-o path to output binary;")
+    fmt.println("")
+    fmt.println("	build <filename>.lang")
+    fmt.println("	  Options:")
+    fmt.println("		-o path to output binary;")
+    fmt.println("")
+
 }
 
 do_all_passes_on_file :: proc(filectx: ^FileContext, out := true) -> bool {
@@ -2324,7 +2335,9 @@ exec :: proc(cmd: string, opts := ExecOptions{}) -> bool {
                 panic("Failed to create process clang++")
             }
         } else {
-            fmt.println("Running", cmd)
+            if .GARBAGE_OUT not_in opts {
+                fmt.println(cmd)
+            }
         }
 
         windows.WaitForSingleObject(pi.hProcess, windows.INFINITE)
@@ -2343,6 +2356,71 @@ exec :: proc(cmd: string, opts := ExecOptions{}) -> bool {
     return true
 }
 
+Options :: struct {
+    src: string,
+    out: string,
+    run: bool,
+}
+
+options_for_cmd := map[string][]string {
+    "run"   = {"-o"},
+    "build" = {"-o"},
+}
+
+parse_args :: proc() -> (Options, bool) {
+    opts := Options{}
+
+    need_n_args_or :: proc(cnt: int, current: int, msg: string) -> bool {
+        if (current + cnt) >= len(os.args) {
+            fmt.println(msg)
+            return false
+        }
+        return true
+    }
+
+    cmd: string
+
+    switch os.args[1] {
+    case "run":
+        opts.run = true
+        if !need_n_args_or(1, 1, "`lang run` requires a filepath after.") {
+            print_usage()
+            return {}, false
+        }
+        opts.src = os.args[2]
+        cmd = "run"
+    case "build":
+        if !need_n_args_or(1, 1, "`lang build` requires a filepath.") {
+            print_usage()
+            return {}, false
+        }
+        opts.src = os.args[2]
+        cmd = "build"
+    case:
+        panic("Commmand not implemented!")
+    }
+
+    for arg, idx in os.args {
+        if idx == 0 || !strings.starts_with(arg, "-") {continue}
+        if slice.contains(options_for_cmd[cmd][:], arg) {
+            switch arg {
+            case "-o":
+                if !need_n_args_or(1, idx, "Found `-o`, but wasn't provided the path") {
+                    print_usage()
+                    return {}, false
+                }
+                opts.out = os.args[idx + 1]
+            case:
+                panic("Option not implemented")
+            }
+        } else {
+            fmt.panicf("Argument `{}` not supported by {}", arg, cmd)
+        }
+    }
+
+    return opts, true
+}
+
 main :: proc() {
 
     if len(os.args) == 1 {
@@ -2354,15 +2432,33 @@ main :: proc() {
         fmt.eprintln("Error: Didn't find `clang++`. Be sure to have it on path and installed.")
         return
     }
-    // FIXME: dehardcode when more options
-    path := os.args[1]
+
+    opts, ok := parse_args()
+    if !ok {
+        return
+    }
+
+    path := opts.src
     filectx := FileContext{}
     filectx.file.file_path = path
 
     if !do_all_passes_on_file(&filectx) {
         return
     }
-    exec(fmt.tprintf("clang++ {}", filectx.file.cpp_path))
+
+    cmd_builder := strings.builder_make(context.temp_allocator)
+
+    fmt.sbprintf(&cmd_builder, "clang++ ")
+    if opts.out != "" {
+        fmt.sbprintf(&cmd_builder, "-o {} ", opts.out)
+    }
+    fmt.sbprintf(&cmd_builder, "{} ", filectx.file.cpp_path)
+
+    exec(strings.to_string(cmd_builder))
+
+    if opts.run {
+        exec(opts.out != "" ? opts.out : "./a.exe")
+    }
 
     strings.builder_destroy(&filectx.transpiler.defines)
     strings.builder_destroy(&filectx.transpiler.decl)

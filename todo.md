@@ -1,7 +1,7 @@
 - UX
     - [ ] Improve error handling. Currently I'm using runtime asserts.
     - [x] Check clang, use clang automagiccly
-    - [ ] Allow compiler options like `-o`
+    - [x] Allow compiler options like `-o`
     - [ ] Autolink libraries using the provided libname in extern
 - Translation
     - [ ] Package definitions to help with transpile. add package name to begin of each module declaration
