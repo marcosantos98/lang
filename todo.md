@@ -3,6 +3,7 @@
     - [x] Check clang, use clang automagiccly
     - [x] Allow compiler options like `-o`
     - [ ] Autolink libraries using the provided libname in extern
+    - [ ] Add `build.bat` and `build.sh`
 - Translation
     - [ ] Package definitions to help with transpile. add package name to begin of each module declaration
     - [ ] Currently the extern libname isnt used at all
@@ -18,7 +19,9 @@
     - [ ] Add positions to expressions?
     - [ ] Allow empty init/cond/post in for loop statement
     - [ ] Single token expression should be placed into a single statement
-    - [ ] Expandable arguments
+    - [x] Expandable arguments
+        - This is actual the `...` in C land. This is need for the C functions like `printf`.
+        - Currently is only used in translation to actual place the `...` in the function declaration.
     - [ ] Fix: `<` has lower precedence than `+`
     - [x] Allow symbols on identifiers like: _, 0-9
     - [ ] Allow functions on structs

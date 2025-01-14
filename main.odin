@@ -25,6 +25,7 @@ FileContext :: struct {
     tokens:     []Token,
     ast:        []^AstNode,
     transpiler: struct {
+        current_node:    ^AstNode,
         has_main:        bool,
         defines:         strings.Builder,
         decl:            strings.Builder,
@@ -353,6 +354,7 @@ NodeType :: union {
     ^AutoCastExpr,
     ^ArrayTypeExpr,
     ^ArrayIndexExpr,
+    ^VarArgsExpr,
 }
 
 Expr :: struct {
@@ -416,6 +418,10 @@ StructFieldExpr :: struct {
     field:   ^Expr,
 }
 
+VarArgsExpr :: struct {
+    using _: Expr,
+}
+
 ExprType :: union {
     ^FnCallExpr,
     ^VarExpr,
@@ -427,6 +433,7 @@ ExprType :: union {
     ^AutoCastExpr,
     ^ArrayTypeExpr,
     ^ArrayIndexExpr,
+    ^VarArgsExpr,
 }
 
 Statement :: struct {
@@ -493,6 +500,7 @@ ReturnStmt :: struct {
 
 FnFlags :: enum {
     EXTERNAL,
+    HAS_VARGS,
 }
 
 PointerExpr :: struct {
@@ -846,6 +854,10 @@ parse_fn_decl_stmt :: proc(filectx: ^FileContext) -> (^AstNode, bool) {
         adv(filectx) // arg_name
 
         arg_type := parse_as_stmt_expr_or(filectx, "Failed to parse parameters type for {}", arg_name)
+
+        if _, ok := arg_type.as_expr.(^VarArgsExpr); ok {
+            flags += {.HAS_VARGS}
+        }
 
         append(&parameters, FnArg{name = arg_name, type = arg_type})
 
@@ -1396,6 +1408,15 @@ parse_arr_type_expr :: proc(filectx: ^FileContext) -> (^AstNode, bool) {
     return newstmtnode(node), true
 }
 
+parse_var_args_expr :: proc(filectx: ^FileContext) -> (^AstNode, bool) {
+    adv(filectx) // .
+    adv(filectx) // .
+    adv(filectx) // .
+    node := newnode(VarArgsExpr)
+    node.as_expr = node
+    return newstmtnode(node), true
+}
+
 parse_primary :: proc(filectx: ^FileContext) -> (^AstNode, bool) {
     trace("ParsePrimary")
     #partial switch tok(filectx).type {
@@ -1423,6 +1444,10 @@ parse_primary :: proc(filectx: ^FileContext) -> (^AstNode, bool) {
         }
     case .OPEN_SQRB:
         return parse_arr_type_expr(filectx)
+    case .DOT:
+        if next_two_are(filectx, .DOT, .DOT) {
+            return parse_var_args_expr(filectx)
+        }
     }
     fmt.panicf("Parser: {} Not valid primary: {}", tokloc(filectx), tok(filectx).lit)
 }
@@ -1561,6 +1586,18 @@ keywords := map[string]Keywords {
 
 // :transpile
 
+current_node_as_expr :: proc(filectx: ^FileContext) -> ^Expr {
+    return filectx.transpiler.current_node.as.(^ExprStmt).expr
+}
+
+current_node_as_expr_t :: proc(filectx: ^FileContext, $t: typeid) -> t {
+    return current_node_as_expr(filectx).as_expr.(t)
+}
+
+current_node_as_stmt_t :: proc(filectx: ^FileContext, $t: typeid) -> t {
+    return filectx.transpiler.current_node.as.(t)
+}
+
 Transpiler :: struct {
     decl, defines, top_level: ^strings.Builder,
 }
@@ -1583,6 +1620,8 @@ transpile_cpp :: proc(filectx: ^FileContext, transpiler: Transpiler, builtin := 
     }
 
     transpile_fn_decl_stmt :: proc(filectx: ^FileContext, transpiler: Transpiler, expr: ^FnDeclStmt) {
+
+        filectx.transpiler.current_node = expr
 
         args := make([dynamic]string, context.temp_allocator)
         if FnFlags.EXTERNAL in expr.flags {
@@ -1779,6 +1818,8 @@ transpile_cpp :: proc(filectx: ^FileContext, transpiler: Transpiler, builtin := 
         case ^ArrayIndexExpr:
             type, _ := try_to_infer(filectx, v.pre)
             return type, true
+        case ^VarArgsExpr:
+            return "Args...", true
         }
         return "", false
     }
@@ -2057,6 +2098,14 @@ transpile_cpp :: proc(filectx: ^FileContext, transpiler: Transpiler, builtin := 
         decl_write(transpiler, "]")
     }
 
+    transpile_var_arg_expr :: proc(filectx: ^FileContext, transpiler: Transpiler, expr: ^VarArgsExpr) {
+        if .EXTERNAL in current_node_as_stmt_t(filectx, ^FnDeclStmt).flags {
+            write(filectx, transpiler, "...")
+        } else {
+            write(filectx, transpiler, "Args...")
+        }
+    }
+
     transpile_expr :: proc(filectx: ^FileContext, transpiler: Transpiler, expr: ^Expr) {
         switch it in expr.as_expr {
         case ^FnCallExpr:
@@ -2079,7 +2128,8 @@ transpile_cpp :: proc(filectx: ^FileContext, transpiler: Transpiler, builtin := 
             transpile_array_type_expr(filectx, transpiler, it)
         case ^ArrayIndexExpr:
             transpile_array_index_expr(filectx, transpiler, it)
-
+        case ^VarArgsExpr:
+            transpile_var_arg_expr(filectx, transpiler, it)
         }
     }
 
@@ -2304,7 +2354,7 @@ ExecOption :: enum {
 }
 ExecOptions :: bit_set[ExecOption]
 
-exec :: proc(cmd: string, opts := ExecOptions{}) -> bool {
+exec :: proc(cmd: string, opts := ExecOptions{}) -> (u32, bool) {
     when ODIN_OS == .Windows {
         si: windows.STARTUPINFOW
 
@@ -2330,7 +2380,7 @@ exec :: proc(cmd: string, opts := ExecOptions{}) -> bool {
         pi: windows.PROCESS_INFORMATION
         if !windows.CreateProcessW(nil, windows.utf8_to_wstring(cmd), nil, nil, false, 0, nil, nil, &si, &pi) {
             if .DONT_HURT_ON_FAIL in opts {
-                return false
+                return 0, false
             } else {
                 panic("Failed to create process clang++")
             }
@@ -2353,7 +2403,7 @@ exec :: proc(cmd: string, opts := ExecOptions{}) -> bool {
         fmt.panicf("Implement exec on {}", ODIN_OS)
     }
 
-    return true
+    return exit_code, true
 }
 
 Options :: struct {
@@ -2428,7 +2478,7 @@ main :: proc() {
         return
     }
 
-    if !exec("clang++ --version", {.GARBAGE_OUT, .DONT_HURT_ON_FAIL}) {
+    if _, ok := exec("clang++ --version", {.GARBAGE_OUT, .DONT_HURT_ON_FAIL}); !ok {
         fmt.eprintln("Error: Didn't find `clang++`. Be sure to have it on path and installed.")
         return
     }
@@ -2454,7 +2504,10 @@ main :: proc() {
     }
     fmt.sbprintf(&cmd_builder, "{} ", filectx.file.cpp_path)
 
-    exec(strings.to_string(cmd_builder))
+    if code, clang_ok := exec(strings.to_string(cmd_builder)); clang_ok && code != 0 {
+        fmt.println("clang return non zero exit code.")
+        os.exit(1)
+    }
 
     if opts.run {
         exec(opts.out != "" ? opts.out : "./a.exe")
