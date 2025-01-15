@@ -1693,7 +1693,25 @@ transpile_cpp :: proc(filectx: ^FileContext, transpiler: Transpiler, builtin := 
     }
 
     transpile_fn_call_expr :: proc(filectx: ^FileContext, transpiler: Transpiler, expr: ^FnCallExpr) {
-        if expr.name.lit != "len" {
+        if expr.name.lit == "len" {
+            if type, ok := try_to_infer(filectx, expr.args[0]); ok {
+                switch type {
+                case "string":
+                    decl_write(transpiler, "len_str(")
+                    filectx.transpiler.is_fn_call_arg = true
+                    transpile_expr(filectx, transpiler, expr.args[0])
+                    filectx.transpiler.is_fn_call_arg = false
+                    decl_write(transpiler, ")\n")
+                case:
+                    fmt.panicf("type {} not implemented for len", type)
+                }
+            } else {
+                panic("couldn't infer type for len function")
+            }
+        } else if expr.name.lit == "make_array" {
+            type := expr.args[0].as.(^VarExpr).name.lit
+            write(filectx, transpiler, "___make_array<{}>()", type)
+        } else {
             decl_write(transpiler, "{}(", expr.name.lit)
             for i in 0 ..< len(expr.args) {
                 it := expr.args[i]
@@ -1707,21 +1725,7 @@ transpile_cpp :: proc(filectx: ^FileContext, transpiler: Transpiler, builtin := 
             }
             decl_write(transpiler, ")")
             if !expr.is_stmt {decl_write(transpiler, ";\n")}
-        } else {
-            if type, ok := try_to_infer(filectx, expr.args[0]); ok {
-                switch type {
-                case "String":
-                    decl_write(transpiler, "len_str(")
-                    filectx.transpiler.is_fn_call_arg = true
-                    transpile_expr(filectx, transpiler, expr.args[0])
-                    filectx.transpiler.is_fn_call_arg = false
-                    decl_write(transpiler, ")\n")
-                case:
-                    fmt.panicf("type {} not implemented for len", type)
-                }
-            } else {
-                panic("couldn't infer type for len function")
-            }
+
         }
 
     }
@@ -1736,19 +1740,19 @@ transpile_cpp :: proc(filectx: ^FileContext, transpiler: Transpiler, builtin := 
                 if filectx.transpiler.is_fn_call_arg {
                     def_write(
                         transpiler,
-                        "static String ___str_{}___ = {{(void*)\"{}\", {}}};\n",
+                        "static string ___str_{}___ = {{(char*)\"{}\", {}}};\n",
                         filectx.transpiler.str_cnt,
                         expr.lit.lit,
                         len(expr.lit.lit),
                     )
                     if filectx.transpiler.arg_type == "cstr" {
                         decl_write(transpiler, "(cstr)___str_{}___.data", filectx.transpiler.str_cnt)
-                    } else if filectx.transpiler.arg_type == "String" {
+                    } else if filectx.transpiler.arg_type == "string" {
                         decl_write(transpiler, "___str_{}___", filectx.transpiler.str_cnt)
                     }
                     filectx.transpiler.str_cnt += 1
                 } else {
-                    decl_write(transpiler, "make_string(\"{}\", {})", expr.lit.lit, len(expr.lit.lit))
+                    decl_write(transpiler, "builtin_make_string((char*)\"{}\", {})", expr.lit.lit, len(expr.lit.lit))
                 }
             }
         case .NUMBER, .BOOL:
@@ -1763,11 +1767,15 @@ transpile_cpp :: proc(filectx: ^FileContext, transpiler: Transpiler, builtin := 
         switch v in expr.as_expr {
         case ^FnCallExpr:
             // FIXME: Should I worry about non existing functions? YES
+            if v.name.lit == "make_array" {
+                type := v.args[0].as.(^VarExpr).name.lit
+                return fmt.tprintf("Array<{}>", type), true
+            }
             return filectx.transpiler.functions[v.name.lit].type, true
         case ^LiteralExpr:
             switch v.type {
             case .STRING:
-                return "String", true
+                return "string", true
             case .NUMBER:
                 // FIXME: Number is hardcoded to int
                 return "int", true
@@ -1837,7 +1845,7 @@ transpile_cpp :: proc(filectx: ^FileContext, transpiler: Transpiler, builtin := 
         // Check if is string and in fn_arg
         if filectx.transpiler.is_fn_call_arg &&
            filectx.transpiler.arg_type == "cstr" &&
-           filectx.transpiler.vars[stmt.name.lit].type == "String" {
+           filectx.transpiler.vars[stmt.name.lit].type == "string" {
             write(filectx, transpiler, "(cstr){}.data", stmt.name.lit)
         } else {
             switch filectx.transpiler.write_state {
@@ -2075,20 +2083,21 @@ transpile_cpp :: proc(filectx: ^FileContext, transpiler: Transpiler, builtin := 
     }
 
     transpile_array_type_expr :: proc(filectx: ^FileContext, transpiler: Transpiler, expr: ^ArrayTypeExpr) {
-        if !filectx.transpiler.is_fn_call_arg {
-            decl_write(transpiler, "{{")
-            for i in 0 ..< len(expr.value_list) {
-                exp := expr.value_list[i]
-                transpile_expr(filectx, transpiler, exp)
-                if i < len(expr.value_list) - 1 {
-                    decl_write(transpiler, ",\n")
-                }
-            }
-            decl_write(transpiler, "}}")
-        } else {
-            transpile_expr(filectx, transpiler, expr.type)
-            write(filectx, transpiler, "*")
-        }
+        //if !filectx.transpiler.is_fn_call_arg {
+        //    decl_write(transpiler, "{{")
+        //    for i in 0 ..< len(expr.value_list) {
+        //        exp := expr.value_list[i]
+        //        transpile_expr(filectx, transpiler, exp)
+        //        if i < len(expr.value_list) - 1 {
+        //            decl_write(transpiler, ",\n")
+        //        }
+        //    }
+        //    decl_write(transpiler, "}}")
+        //} else {
+        //    transpile_expr(filectx, transpiler, expr.type)
+        //    write(filectx, transpiler, "*")
+        //}
+        write(filectx, transpiler, "builtin_make_slice((int[]){{1, 2, 3}}, 3)")
     }
 
     transpile_array_index_expr :: proc(filectx: ^FileContext, transpiler: Transpiler, expr: ^ArrayIndexExpr) {
@@ -2133,7 +2142,7 @@ transpile_cpp :: proc(filectx: ^FileContext, transpiler: Transpiler, builtin := 
         }
     }
 
-    deal_with_import_expr :: proc(filectx: ^FileContext, expr: ^ImportDeclStmt) -> bool {
+    deal_with_import_expr :: proc(filectx: ^FileContext, import_path: string, relative := true) -> bool {
         dir :: proc(path: string, allocator := context.allocator) -> string {
             context.allocator = allocator
             vol := filepath.volume_name(path)
@@ -2145,9 +2154,12 @@ transpile_cpp :: proc(filectx: ^FileContext, transpiler: Transpiler, builtin := 
             return strings.concatenate({vol, dir})
         }
 
-        current_dir := dir(filectx.file.file_path, context.temp_allocator)
-        path := strings.concatenate({current_dir, expr.path.lit}, context.temp_allocator)
-        path, _ = filepath.from_slash(path, context.temp_allocator)
+        path: string = import_path
+        if relative {
+            current_dir := dir(filectx.file.file_path, context.temp_allocator)
+            path = strings.concatenate({current_dir, import_path}, context.temp_allocator)
+            path, _ = filepath.from_slash(path, context.temp_allocator)
+        }
         if !os.exists(path) {
             fmt.printf("Transpiler: Failed to import file with path `{}`. Doesn't exist.\n", path)
             return false
@@ -2201,16 +2213,19 @@ transpile_cpp :: proc(filectx: ^FileContext, transpiler: Transpiler, builtin := 
         return true
     }
 
+
     if !builtin {
         // :builtin
+        deal_with_import_expr(filectx, "V:/dev/lang/internal/builtin.lang", relative = false)
         def_write(transpiler, "/* --------------- Builtin ---------------- */")
-        def_write(transpiler, "{}", string_definitions)
+        def_write(transpiler, "{}", dyn_array)
         def_write(transpiler, "/* --------------- Builtin ---------------- */\n")
     }
+
     // deal with imports
     for expr in filectx.ast {
         if import_expr, ok := expr.as.(^ImportDeclStmt); ok {
-            if !deal_with_import_expr(filectx, import_expr) {
+            if !deal_with_import_expr(filectx, import_expr.path.lit) {
                 return false
             }
         }
