@@ -2,6 +2,7 @@
 extern "c" puts :: int(str cstr)
 extern "c" putchar :: int(d int)
 extern "c" exit :: int(code int)
+extern "c" printf :: int(str cstr, args ...)
 
 putd :: void(d int) {
     if d > 9 {

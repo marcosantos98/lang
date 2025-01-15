@@ -2,7 +2,6 @@ import "std.lang"
 
 main :: void() {
     var hello = "Hello, World"
-
-    puts(hello)
-    putd(len(hello))
+    printf("%s ", hello.data)
+    printf("len is %d\n", len(hello))
 }
