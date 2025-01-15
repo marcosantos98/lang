@@ -27,6 +27,10 @@
     - [ ] Allow functions on structs
     - [ ] Add: ==, !, <=, >=
     - [ ] Change StructFieldExpr to SelectorExpr and allow `fncall().x`
+    - [ ] Allow use of compiler flags on parsing
+        - Something like: `#cflags="-c"`
+    - [ ] Explicit cast: `"asas" as cstr`
 - Testing
     - [ ] Maybe remove the translation tests
     - [ ] Add test for compiled executable output
+    - [ ] Add `-fo` option to format cpp output with `clang-format`
