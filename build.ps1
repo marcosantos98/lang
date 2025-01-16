@@ -18,7 +18,7 @@ function fail_on_err {
 
 if ( $args[0] -eq "rec") {
     Get-ChildItem -Path "./tests/" -Filter "*.lang" | ForEach-Object {
-	./lang.exe $($_.FullName)
+	./lang.exe build $($_.FullName)
     }
     Get-ChildItem -Path "./tests/" -Filter "*.cpp" | ForEach-Object {
 	mv -Force $($_.FullName) "$($_.FullName).out"	
@@ -26,21 +26,13 @@ if ( $args[0] -eq "rec") {
 } elseif ( $args[0] -eq "test") {
     Write-Host "Transpile all tests" -ForegroundColor Red
     Get-ChildItem -Path "./tests/" -Filter "*.lang" | ForEach-Object {
-	fail_on_err "./lang.exe $($_.FullName)" "Failed to compile $($_.FullName)" -newline $false
-    }
-    Write-Host "Compile all tests with clang++" -ForegroundColor Red
-    Get-ChildItem -Path "./tests/" -Filter "*.cpp" | ForEach-Object {
-	if ( $($_.Name) -eq "std.cpp") {
-	    Write-Host "Ignored std" -ForegroundColor Cyan
-	} else {
-	    fail_on_err "clang++ $($_.FullName)" "Failed to compile transpiled c++" -newline $false	
-	}
+	fail_on_err "./lang.exe build $($_.FullName)" "Failed to compile $($_.FullName)" -newline $false
     }
 } else {
     $release = $false
     $show_timings = $true
     $trace = $false
-   # $trace = $true
+    #$trace = $true
     $flags = "-warnings-as-errors -vet-unused -vet-shadowing -vet-packages:main"
     if ($show_timings -eq $true) {
     	$flags += " -show-timings"
@@ -59,7 +51,7 @@ if ( $args[0] -eq "rec") {
     
     Write-Host "Building:" -ForegroundColor Magenta
     fail_on_err "odin build . $flags" "Failed to build."
-    
+    Write-Host "===================================================="    
     ./lang.exe $($args)
 }
 
