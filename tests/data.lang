@@ -7,7 +7,7 @@ example :: void(a int*) {
 main :: void() {
 
     var a = 1
-    printf(xx to_cstring("%d\n"), a)
+    printf(to_cstring("%d\n"), a)
     example(&a)
-    printf(xx to_cstring("%d\n"), a)
+    printf(to_cstring("%d\n"), a)
 }

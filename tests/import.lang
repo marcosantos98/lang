@@ -2,6 +2,6 @@ import "std:c" // puts
 import "std:fmt" // putd
 
 main :: void() {
-    puts(xx to_cstring("Hello World"))
+    puts(to_cstring("Hello World"))
     putd(69)
 }

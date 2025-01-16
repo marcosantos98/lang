@@ -1,5 +1,5 @@
 import "std:c"
 
 main :: void() {
-    printf(xx to_cstring("Hello World\n"))
+    printf(to_cstring("Hello World\n"))
 }

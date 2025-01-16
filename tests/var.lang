@@ -10,7 +10,7 @@ main :: void() {
     var c = true
     var d = false
     
-    puts(xx b.data)
+    puts(to_cstring(b))
 
     thing(d)
 }

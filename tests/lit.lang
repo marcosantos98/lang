@@ -1,6 +1,6 @@
 import "std:c"
 
 main :: void() {
-    puts(xx to_cstring("Hello World"))
+    puts(to_cstring("Hello World"))
     exit(1)
 }

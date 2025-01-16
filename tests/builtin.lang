@@ -2,8 +2,8 @@ import "std:c"
 
 main :: void() {
     var hello = "Hello, World"
-    printf(xx to_cstring("%s "), hello.data)
-    printf(xx to_cstring("len is %d\n"), len(hello))
+    printf(to_cstring("%s "), hello.data)
+    printf(to_cstring("len is %d\n"), len(hello))
 
-    printf(xx to_cstring("%s %d\n"), hello.data, len(hello))
+    printf(to_cstring("%s %d\n"), hello.data, len(hello))
 }
