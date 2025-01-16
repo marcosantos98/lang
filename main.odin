@@ -349,6 +349,7 @@ NodeType :: union {
     ^ArrayTypeExpr,
     ^ArrayIndexExpr,
     ^VarArgsExpr,
+    ^AsExpr,
 }
 
 Expr :: struct {
@@ -359,6 +360,12 @@ Expr :: struct {
 AssignFlag :: enum {
     PLUS,
     MINUS,
+}
+
+AsExpr :: struct {
+    using _: Expr,
+    lhs:     ^Expr,
+    rhs:     ^Expr,
 }
 
 ArrayTypeExpr :: struct {
@@ -428,6 +435,7 @@ ExprType :: union {
     ^ArrayTypeExpr,
     ^ArrayIndexExpr,
     ^VarArgsExpr,
+    ^AsExpr,
 }
 
 Statement :: struct {
@@ -1294,7 +1302,7 @@ try_parse_identifier :: proc(filectx: ^FileContext) -> (^AstNode, bool) {
             return parse_var_decl_stmt(filectx)
         case .AUTO_CAST:
             return parse_auto_cast_expr(filectx)
-        case .ELSE:
+        case .ELSE, .AS:
             fmt.println("Invalid token:", tok(filectx).lit)
             return nil, false
         }
@@ -1461,6 +1469,12 @@ get_tok_precedence :: proc(filectx: ^FileContext) -> int {
         return 10
     case .EQ, .PLUS_EQ, .MINUS_EQ:
         return 5
+    case .IDENTIFIER:
+        if tok(filectx).lit in keywords {
+            if keywords[tok(filectx).lit] == .AS {
+                return 4
+            }
+        }
     }
     return -1
 }
@@ -1504,6 +1518,19 @@ parse_rhs :: proc(filectx: ^FileContext, precedence: int, lhs: ^AstNode) -> (^As
             }
             node.flags = flags
             return node, true
+        case .IDENTIFIER:
+            if op.lit in keywords {
+                #partial switch keywords[op.lit] {
+                case .AS:
+                    node := newnode(AsExpr)
+                    node.as_expr = node
+                    node.lhs = lhs.as.(^ExprStmt).expr
+                    node.rhs = rhs.as.(^ExprStmt).expr
+                    return newstmtnode(node), true
+                case:
+                    panic("Not")
+                }
+            }
         case:
             binexpr := newnode(BinaryExpr)
             binexpr.as_expr = binexpr
@@ -1559,6 +1586,7 @@ Keywords :: enum {
     RETURN,
     VAR,
     AUTO_CAST,
+    AS,
 }
 
 keywords := map[string]Keywords {
@@ -1575,6 +1603,7 @@ keywords := map[string]Keywords {
     "return" = .RETURN,
     "var"    = .VAR,
     "xx"     = .AUTO_CAST,
+    "as"     = .AS,
 }
 // ;parser
 

@@ -30,6 +30,7 @@ Visitor :: struct {
     visit_binary_expr:       proc(visitor: Visitor, node: ^BinaryExpr),
     visit_array_type_expr:   proc(visitor: Visitor, node: ^ArrayTypeExpr),
     visit_array_index_expr:  proc(visitor: Visitor, node: ^ArrayIndexExpr),
+    visit_as_expr:           proc(visitor: Visitor, node: ^AsExpr),
 }
 
 visit :: proc(visitor: Visitor, node: ^AstNode) {
@@ -79,6 +80,8 @@ visit :: proc(visitor: Visitor, node: ^AstNode) {
         visitor.visit_array_type_expr(visitor, stmt)
     case ^ArrayIndexExpr:
         visitor.visit_array_index_expr(visitor, stmt)
+    case ^AsExpr:
+        visitor.visit_as_expr(visitor, stmt)
     case ^ExprStmt:
         visit(visitor, stmt.expr)
     case:
@@ -633,6 +636,14 @@ visit_break_stmt :: proc(visitor: Visitor, stmt: ^BreakStmt) {
     write("break;")
 }
 
+// :as_expr
+visit_as_expr :: proc(visitor: Visitor, expr: ^AsExpr) {
+    write("(")
+    visit(visitor, expr.rhs)
+    write(")")
+    visit(visitor, expr.lhs)
+}
+
 deal_with_import :: proc(import_path: string) {
     file := FileContext{}
     file.file.file_path = import_path
@@ -684,6 +695,7 @@ transpile_cpp :: proc(ast: []^AstNode) {
         visit_binary_expr,
         visit_array_type_expr,
         visit_array_index_expr,
+        visit_as_expr,
     }
 
     for node in ast {

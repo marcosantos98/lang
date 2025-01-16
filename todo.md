@@ -30,7 +30,7 @@
     - [ ] Change StructFieldExpr to SelectorExpr and allow `fncall().x`
     - [ ] Allow use of compiler flags on parsing
         - Something like: `#cflags="-c"`
-    - [ ] Explicit cast: `"asas" as cstr`
+    - [x] Explicit cast: `"asas" as cstr`
     - [ ] Type definition: `typedef ...`
     - [ ] Change assigns flags to an enum.
 - Testing

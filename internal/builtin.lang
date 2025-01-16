@@ -11,6 +11,6 @@ len_str :: int(str string) {
     return str.len
 }
 
-to_cstring :: void*(str string) {
-    return str.data
+to_cstring :: char*(str string) {
+    return str.data as char*
 }
