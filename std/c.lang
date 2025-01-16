@@ -1,0 +1,4 @@
+extern "c" puts :: int(str char*)
+extern "c" putchar :: int(d int)
+extern "c" exit :: int(code int)
+extern "c" printf :: int(str char*, args ...)
