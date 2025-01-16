@@ -1,8 +1,8 @@
-import "std.lang"
+import "std:c"
 
 main :: void(){
     var a = "Hello, World"
     {
-	puts(a)
+	puts(xx a.data)
     }
 }

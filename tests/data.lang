@@ -1,4 +1,4 @@
-import "std.lang"
+import "std:c"
 
 example :: void(a int*) {
     *a += 1
@@ -7,8 +7,7 @@ example :: void(a int*) {
 main :: void() {
 
     var a = 1
-    putd(a)
-    puts("")
+    printf(xx to_cstring("%d\n"), a)
     example(&a)
-    putd(a)
+    printf(xx to_cstring("%d\n"), a)
 }

@@ -1,6 +1,7 @@
-import "./std.lang"
+import "std:c" // puts
+import "std:fmt" // putd
 
 main :: void() {
-    puts("Hello World")
+    puts(xx to_cstring("Hello World"))
     putd(69)
 }

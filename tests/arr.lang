@@ -1,24 +1,21 @@
-import "std.lang"
+import "std:c"
 
 add :: void(a int*) {
     *a += 1
 }
 
 print :: void(a int) {
-    putd(a)
+    printf(xx to_cstring("%d\n"), a)
 }
 
 main :: void() {
     var ns = [10]int{0, 2}
     ns[0] = 0
-    putd(ns[0])
+    printf(xx to_cstring("%d\n"), ns[0])
     add(&ns[0])
-    puts("")
-    putd(ns[0])
+    printf(xx to_cstring("%d\n"), ns[0])
     var z = &ns[1]
-    puts("")
     print(*z)
     *z += 1
-    puts("")
-    putd(*z)
+    printf(xx to_cstring("%d\n"), *z)
 }

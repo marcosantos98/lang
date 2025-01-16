@@ -1,4 +1,4 @@
-import "std.lang"
+import "std:c"
 
 thing :: void(thing bool) {
     exit(thing)
@@ -10,7 +10,7 @@ main :: void() {
     var c = true
     var d = false
     
-    puts(b)
+    puts(xx b.data)
 
     thing(d)
 }

@@ -1,4 +1,4 @@
-import "std.lang"
+import "std:c"
 
 struct Bar {
     baz int,
@@ -13,8 +13,7 @@ main :: void() {
    var foo = Foo{10, 20}
 
    var b: int = foo.baz
-
-   putd(foo.bar)
-   puts("")
-   putd(foo.baz)
+	
+   printf(xx to_cstring("%d\n"), foo.bar)
+   printf(xx to_cstring("%d\n"), foo.baz)
 }

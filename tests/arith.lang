@@ -1,4 +1,4 @@
-import "std.lang"
+import "std:c"
 
 main :: void() {
     var i = 30 + 30

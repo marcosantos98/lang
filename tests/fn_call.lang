@@ -1,5 +1,5 @@
-extern "c" puts :: int(str cstr)
+import "std:c"
 
 main :: void() {
-    puts("Hello, World")
+    printf(xx to_cstring("Hello World\n"))
 }

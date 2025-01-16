@@ -1,36 +1,35 @@
-import "std.lang"
+import "std:c"
+import "std:fmt"
 
 main :: void() {
 
     var i = 0
     if i < 10 {
-	puts("Hello, World")
+	puts(xx to_cstring("Hello, World"))
     }
 
     var k = 10
     if k > 10 {
-	puts("K is greater than 10")
+	puts(xx to_cstring("K is greater than 10"))
     } else if k < 10 {
-	puts("K is less than 10")
+	puts(xx to_cstring("K is less than 10"))
     } else {
-	puts("K is")
-	putd(k)
-	puts("")
+	printf(xx to_cstring("K is %d\n"), k)
     }
 
     while i < 2 {
-	puts("I is less than 2")
+	puts(xx to_cstring("I is less than 2"))
 	i += 1
     }
 
     for var j = 0; j < 10; j += 1 {
 	putd(j)
-	puts("")
+	puts(xx to_cstring(""))
     }
 
     var l = 0
     while true {
-	puts("Should print 4 times")
+	puts(xx to_cstring("Should print 4 times"))
 	if l < 3 {
 	    l += 1
 	} else {
