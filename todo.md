@@ -15,6 +15,7 @@
         - [ ] Currently leaks due to need of keep definitions!
     - [ ] Fix: Getting types of struct fields with more than on layer deep breaks: `foo.bar.baz`
     - [ ] Fix: `fncall(fncall2())` breaks cause transpiler places `;` at argument level
+    - [ ] Add `cstring` internal to place string instead of creating a lenght string.
 - Parser
     - [ ] Add positions to expressions?
     - [ ] Allow empty init/cond/post in for loop statement
@@ -30,6 +31,8 @@
     - [ ] Allow use of compiler flags on parsing
         - Something like: `#cflags="-c"`
     - [ ] Explicit cast: `"asas" as cstr`
+    - [ ] Type definition: `typedef ...`
+    - [ ] Change assigns flags to an enum.
 - Testing
     - [ ] Maybe remove the translation tests
     - [ ] Add test for compiled executable output
