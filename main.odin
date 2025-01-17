@@ -13,7 +13,7 @@ _ :: slice
 _ :: filepath
 
 FileContext :: struct {
-    parser:     struct {
+    parser: struct {
         in_assign:     bool,
         is_pointer:    bool,
         is_deref:      bool,
@@ -21,48 +21,10 @@ FileContext :: struct {
         is_arr:        bool,
         as_expr:       bool,
     },
-    cursor:     int,
-    tokens:     []Token,
-    ast:        []^AstNode,
-    transpiler: struct {
-        current_node:    ^AstNode,
-        has_main:        bool,
-        defines:         strings.Builder,
-        decl:            strings.Builder,
-        top_level:       strings.Builder,
-        str_cnt:         int,
-        cur_fn_decl:     string,
-        cur_var_decl:    string,
-        var_name:        string,
-        functions:       map[string]struct {
-            type:       string,
-            scope_vars: map[string]struct {
-                type:    string,
-                pointer: bool,
-            },
-            args:       []string,
-        },
-        vars:            map[string]struct {
-            type:    string,
-            pointer: bool,
-        },
-        structs:         map[string]struct {
-            name:   string,
-            fields: map[string]string,
-        },
-        add_semicolon:   bool,
-        write_state:     enum {
-            DECL,
-            DEFINE,
-            TOP_LEVEL,
-        },
-        is_fn_call_arg:  bool,
-        arg_type:        string,
-        is_struct_field: bool,
-        struct_name:     string,
-        struct_field:    string,
-    },
-    file:       struct {
+    cursor: int,
+    tokens: []Token,
+    ast:    []^AstNode,
+    file:   struct {
         file_path: string,
         cpp_path:  string,
         content:   []u8,
@@ -96,6 +58,8 @@ TokenType :: enum {
     AMPERSAND,
     OPEN_SQRB,
     CLOSE_SQRB,
+    CARET,
+    AT,
     EOF,
 }
 
@@ -175,6 +139,10 @@ tokenize :: proc(file_context: ^FileContext) -> bool {
             row += 1
             cursor += 1
         case ' ', '\t':
+            col += 1
+            cursor += 1
+        case '@':
+            append(&tokens, make_token(.AT, cursor, cursor + 1, col, row, file_context))
             col += 1
             cursor += 1
         case ':':
@@ -267,6 +235,10 @@ tokenize :: proc(file_context: ^FileContext) -> bool {
             append(&tokens, make_token(.AMPERSAND, cursor, cursor + 1, col, row, file_context))
             col += 1
             cursor += 1
+        case '^':
+            append(&tokens, make_token(.CARET, cursor, cursor + 1, col, row, file_context))
+            col += 1
+            cursor += 1
         case '>':
             append(&tokens, make_token(.GT, cursor, cursor + 1, col, row, file_context))
             col += 1
@@ -345,6 +317,7 @@ NodeType :: union {
     ^StructInitExpr,
     ^StructFieldExpr,
     ^PointerExpr,
+    ^DerefExpr,
     ^AutoCastExpr,
     ^ArrayTypeExpr,
     ^ArrayIndexExpr,
@@ -431,6 +404,7 @@ ExprType :: union {
     ^StructInitExpr,
     ^StructFieldExpr,
     ^PointerExpr,
+    ^DerefExpr,
     ^AutoCastExpr,
     ^ArrayTypeExpr,
     ^ArrayIndexExpr,
@@ -457,7 +431,6 @@ StmtType :: union {
     ^StructDeclStmt,
     ^ReturnStmt,
 }
-
 
 BreakStmt :: struct {
     using expr: Expr,
@@ -508,6 +481,11 @@ FnFlags :: enum {
 PointerExpr :: struct {
     using _: Expr,
     type:    Token,
+}
+
+DerefExpr :: struct {
+    using _: Expr,
+    expr:    ^Expr,
 }
 
 FnArg :: struct {
@@ -1018,15 +996,13 @@ parse_struct_field_expr :: proc(filectx: ^FileContext) -> (^AstNode, bool) {
 
     adv(filectx) // .
 
-    field := parse_as_lhs_expr_or(filectx, "Failed to parse struct field")
-
-    //    field: ^Expr
-    //    if field_, ok := int_parse(filectx); ok {
-    //        field = field_.as.(^ExprStmt).expr
-    //    } else {
-    //        fmt.println("Failed to parse struct field field")
-    //        return nil, false
-    //    }
+    field: ^Expr
+    if field_, ok := parse_var_expr(filectx); ok {
+        field = field_.as.(^ExprStmt).expr
+    } else {
+        fmt.println("Failed to parse struct field field")
+        return nil, false
+    }
 
     node := newnode(StructFieldExpr)
     node.as_expr = node
@@ -1263,11 +1239,23 @@ parse_return_stmt :: proc(filectx: ^FileContext) -> (^AstNode, bool) {
     return node, true
 }
 
+parse_deref_expr :: proc(filectx: ^FileContext) -> (^AstNode, bool) {
+    trace("DerefExpr")
+    adv(filectx) // $
+    expr := parse_as_stmt_expr_or(filectx, "Failed to parse deref expr")
+
+    node := newnode(DerefExpr)
+    node.as_expr = node
+    node.expr = expr
+
+    return newstmtnode(node), true
+}
+
 parse_pointer_expr :: proc(filectx: ^FileContext) -> (^AstNode, bool) {
     trace("PointerExpr")
+    adv(filectx) // ^
     type := tok(filectx)
     adv(filectx) // type
-    adv(filectx) // *
 
     node := newnode(PointerExpr)
     node.as_expr = node
@@ -1308,8 +1296,6 @@ try_parse_identifier :: proc(filectx: ^FileContext) -> (^AstNode, bool) {
         }
     } else if next_is(filectx, .OPEN_PAREN) && !filectx.parser.is_type_parse {
         return parse_fn_call_expr(filectx)
-    } else if next_is(filectx, .ASTERISK) {
-        return parse_pointer_expr(filectx)
     } else if next_two_are(filectx, .COLON, .COLON) {
         return parse_fn_decl_stmt(filectx)
     } else if !filectx.parser.is_arr && !filectx.parser.as_expr && next_is(filectx, .OPEN_CBRACKET) {
@@ -1437,11 +1423,13 @@ parse_primary :: proc(filectx: ^FileContext) -> (^AstNode, bool) {
             adv(filectx) // &
             return parse_primary(filectx)
         }
-    case .ASTERISK:
+    case .CARET:
+        return parse_pointer_expr(filectx)
+    case .AT:
         {
-            trace("ASTERISK")
+            trace("AT")
             filectx.parser.is_deref = true
-            adv(filectx) // *
+            adv(filectx) // @
             return parse_primary(filectx)
         }
     case .OPEN_SQRB:
@@ -1472,7 +1460,7 @@ get_tok_precedence :: proc(filectx: ^FileContext) -> int {
     case .IDENTIFIER:
         if tok(filectx).lit in keywords {
             if keywords[tok(filectx).lit] == .AS {
-                return 4
+                return 6
             }
         }
     }
@@ -1482,9 +1470,10 @@ get_tok_precedence :: proc(filectx: ^FileContext) -> int {
 parse_rhs :: proc(filectx: ^FileContext, precedence: int, lhs: ^AstNode) -> (^AstNode, bool) {
     for {
         tok_pre := get_tok_precedence(filectx)
-        if tok_pre < precedence || is_unary_context(filectx) {
+        if tok_pre < precedence {
             return lhs, true
         }
+
         trace("ParseRHS {} {}", tok(filectx).lit, tok_pre)
         op := tok(filectx)
         adv(filectx)
@@ -1504,6 +1493,7 @@ parse_rhs :: proc(filectx: ^FileContext, precedence: int, lhs: ^AstNode) -> (^As
 
         #partial switch op.type {
         case .MINUS_EQ, .PLUS_EQ, .EQ:
+            trace("AssignStmt")
             node := newnode(AssignStmt)
             node.as_stmt = node
             node.lhs = lhs.as.(^ExprStmt).expr
@@ -1727,14 +1717,15 @@ exec :: proc(cmd: string, opts := ExecOptions{}) -> (u32, bool) {
 }
 
 Options :: struct {
-    src: string,
-    out: string,
-    run: bool,
+    src:                string,
+    out:                string,
+    compile_with_debug: bool,
+    run:                bool,
 }
 
 options_for_cmd := map[string][]string {
-    "run"   = {"-o"},
-    "build" = {"-o"},
+    "run"   = {"-o", "-d"},
+    "build" = {"-o", "-d"},
 }
 
 parse_args :: proc() -> (Options, bool) {
@@ -1780,6 +1771,8 @@ parse_args :: proc() -> (Options, bool) {
                     return {}, false
                 }
                 opts.out = os.args[idx + 1]
+            case "-d":
+                opts.compile_with_debug = true
             case:
                 panic("Option not implemented")
             }
@@ -1819,6 +1812,9 @@ main :: proc() {
     cmd_builder := strings.builder_make(context.temp_allocator)
 
     fmt.sbprintf(&cmd_builder, "clang++ ")
+    if opts.compile_with_debug {
+        fmt.sbprintf(&cmd_builder, "-ggdb ")
+    }
     if opts.out != "" {
         fmt.sbprintf(&cmd_builder, "-o {} ", opts.out)
     }
@@ -1832,11 +1828,4 @@ main :: proc() {
     if opts.run {
         exec(opts.out != "" ? opts.out : "./a.exe")
     }
-
-    //    fmt.println("=============================================")
-    //  _transpile_cpp(filectx.ast)
-
-    strings.builder_destroy(&filectx.transpiler.defines)
-    strings.builder_destroy(&filectx.transpiler.decl)
-    strings.builder_destroy(&filectx.transpiler.top_level)
 }

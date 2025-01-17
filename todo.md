@@ -5,6 +5,7 @@
     - [ ] Autolink libraries using the provided libname in extern
     - [ ] Add `build.bat` and `build.sh`
 - Translation
+    - [ ] Don't reinclude included files.
     - [ ] Package definitions to help with transpile. add package name to begin of each module declaration
     - [ ] Currently the extern libname isnt used at all
     - [ ] Type inference from struct fields
@@ -12,9 +13,9 @@
         - Autocast doesn't work on struct fields
     - [ ] Imported files
         - [ ] Files are copied into provided main files and could be accessed only if used to remove unneccessary code
-        - [ ] Currently leaks due to need of keep definitions!
+        - [x] Currently leaks due to need of keep definitions!
     - [ ] Fix: Getting types of struct fields with more than on layer deep breaks: `foo.bar.baz`
-    - [ ] Fix: `fncall(fncall2())` breaks cause transpiler places `;` at argument level
+    - [x] Fix: `fncall(fncall2())` breaks cause transpiler places `;` at argument level
     - [ ] Add `cstring` internal to place string instead of creating a lenght string.
 - Parser
     - [ ] Add positions to expressions?
@@ -31,6 +32,7 @@
     - [ ] Allow use of compiler flags on parsing
         - Something like: `#cflags="-c"`
     - [x] Explicit cast: `"asas" as cstr`
+        - [ ] Breaks on `x as y + 3`. This is probably fixed with parentisis expression.
     - [ ] Type definition: `typedef ...`
     - [ ] Change assigns flags to an enum.
 - Testing

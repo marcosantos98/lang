@@ -1,9 +1,9 @@
 struct string {
-    data void*,
+    data ^void,
     len int,
 }
 
-builtin_make_string :: string(data void*, len int) {
+builtin_make_string :: string(data ^void, len int) {
     return string{xx data, len}
 }
 
@@ -11,6 +11,6 @@ len_str :: int(str string) {
     return str.len
 }
 
-to_cstring :: char*(str string) {
-    return str.data as char*
+to_cstring :: ^char(str string) {
+    return str.data as ^char
 }

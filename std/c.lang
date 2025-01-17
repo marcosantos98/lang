@@ -1,4 +1,10 @@
-extern "c" puts :: int(str char*)
+extern "c" puts :: int(str ^char)
 extern "c" putchar :: int(d int)
 extern "c" exit :: int(code int)
-extern "c" printf :: int(str char*, args ...)
+extern "c" printf :: int(str ^char, args ...)
+
+extern "c" malloc :: ^void(size long)
+extern "c" realloc :: ^void(curr ^void, size long)
+extern "c" free :: void(ptr ^void)
+extern "c" memcpy :: ^void(dest ^void, src ^void, len long)
+extern "c" memset :: ^void(dest ^void, c int, size long)

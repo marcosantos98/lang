@@ -34,7 +34,7 @@ Visitor :: struct {
 }
 
 visit :: proc(visitor: Visitor, node: ^AstNode) {
-    #partial switch stmt in node.as {
+    switch stmt in node.as {
     case ^FnDeclStmt:
         visitor.visit_fn_decl_stmt(visitor, stmt)
     case ^VarDeclStmt:
@@ -84,7 +84,7 @@ visit :: proc(visitor: Visitor, node: ^AstNode) {
         visitor.visit_as_expr(visitor, stmt)
     case ^ExprStmt:
         visit(visitor, stmt.expr)
-    case:
+    case ^Statement, ^DerefExpr:
         fmt.panicf("Not implemented {}", stmt)
     }
 }
@@ -136,7 +136,7 @@ FunctionInfo :: struct {
 }
 
 StructInfo :: struct {
-    fields: [dynamic]string,
+    fields: [dynamic]ScopeVariable,
 }
 
 type_for_var_in_fn :: proc(var, fn: string) -> string {
@@ -144,7 +144,7 @@ type_for_var_in_fn :: proc(var, fn: string) -> string {
 }
 
 type_from_expr :: proc(expr: ^Expr) -> string {
-    #partial switch e in expr.as_expr {
+    switch e in expr.as_expr {
     case ^VarExpr:
         if e.name.lit in ctx.vars {
             if e.is_pointer {
@@ -172,6 +172,9 @@ type_from_expr :: proc(expr: ^Expr) -> string {
         }
     case ^PointerExpr:
         return fmt.tprintf("{}*", e.type.lit)
+    case ^DerefExpr:
+        type := type_from_expr(e.expr)
+        return fmt.tprintf("*{}", type)
     case ^AutoCastExpr:
         return type_from_expr(e.expr)
     case ^VarArgsExpr:
@@ -184,6 +187,27 @@ type_from_expr :: proc(expr: ^Expr) -> string {
         return type_from_expr(e.pre)
     case ^StructInitExpr:
         return e.type.lit
+    case ^FnCallExpr:
+        ret_type := ctx.functions_info[e.name.lit].return_type
+        return ret_type
+    case ^StructFieldExpr:
+        var_type := type_from_expr(e.who)
+        if strings.ends_with(var_type, "*") {
+            ok: bool
+            var_type, ok = strings.substring(var_type, 0, len(var_type) - 1)
+        }
+        if var_type in ctx.structs_info {
+            struct_ := ctx.structs_info[var_type]
+            field := type_from_expr(e.field)
+            for v in struct_.fields {
+                if field == v.name {
+                    return v.type
+                }
+            }
+        }
+        return var_type
+    case ^AsExpr:
+        return "UPSIE"
     case:
         fmt.panicf("Not implemented for {}", e)
     }
@@ -253,7 +277,7 @@ collect_struct_info :: proc(stmt: ^StructDeclStmt) {
     si := StructInfo{}
 
     for field in stmt.fields {
-        append(&si.fields, type_from_expr(field.type))
+        append(&si.fields, ScopeVariable{field.name.lit, type_from_expr(field.type), false})
     }
 
     ctx.structs_info[name] = si
@@ -445,20 +469,31 @@ visit_fn_call_expr :: proc(visitor: Visitor, expr: ^FnCallExpr) {
     }
 }
 
+count_str :: proc(lit: string) -> int {
+    a := 0
+    for c in lit {
+        if c != '\\' {
+            a += 1
+        }
+    }
+    return a
+}
+
 // :lit_str
 visit_literal_expr :: proc(visitor: Visitor, expr: ^LiteralExpr) {
     switch expr.type {
     case .STRING:
+        len := count_str(expr.lit.lit)
         switch ctx.in_ctx {
         case .AS_VAR_EXPR:
-            write("builtin_make_string((void*)\"{}\", {})", expr.lit.lit, len(expr.lit.lit))
+            write("builtin_make_string((void*)\"{}\", {})", expr.lit.lit, len)
         case .STMT, .IN_STRUCT_INIT, .AS_ARG:
             ctx.write_state = .TOP_LEVEL
             write(
                 "static string ___str{}___ = builtin_make_string((void*)\"{}\", {});\n",
                 ctx.str_id,
                 expr.lit.lit,
-                len(expr.lit.lit),
+                len,
             )
             ctx.write_state = .DECL
             write("___str{}___", ctx.str_id)
@@ -474,7 +509,12 @@ visit_literal_expr :: proc(visitor: Visitor, expr: ^LiteralExpr) {
 // :struct_field
 visit_struct_field_expr :: proc(visitor: Visitor, expr: ^StructFieldExpr) {
     visit(visitor, expr.who)
-    write(".")
+    type := type_from_expr(expr.who)
+    if strings.ends_with(type, "*") {
+        write("->")
+    } else {
+        write(".")
+    }
     visit(visitor, expr.field)
 }
 
@@ -539,7 +579,7 @@ visit_auto_cast_expr :: proc(visitor: Visitor, expr: ^AutoCastExpr) {
     case .AS_VAR_EXPR:
         panic("")
     case .IN_STRUCT_INIT:
-        type := ctx.structs_info[ctx.curr_struct_init].fields[ctx.curr_struct_init_field]
+        type := ctx.structs_info[ctx.curr_struct_init].fields[ctx.curr_struct_init_field].type
         write("({})", type)
         visit(visitor, expr.expr)
     case .FOR_INIT:
@@ -549,9 +589,12 @@ visit_auto_cast_expr :: proc(visitor: Visitor, expr: ^AutoCastExpr) {
 
 // :binary_expr
 visit_binary_expr :: proc(visitor: Visitor, expr: ^BinaryExpr) {
+    prev := ctx.in_ctx
+    ctx.in_ctx = .AS_ARG
     visit(visitor, expr.lhs)
     write("{}", expr.operator.lit)
     visit(visitor, expr.rhs)
+    ctx.in_ctx = prev
 }
 
 // :assign_stmt
@@ -661,6 +704,8 @@ deal_with_import :: proc(import_path: string) {
     }
 
     transpile_cpp(file.ast)
+
+    fmt.printfln("Success transpile of {}", import_path)
 }
 
 transpile_file :: proc(ast: []^AstNode) {
