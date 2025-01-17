@@ -1,0 +1,37 @@
+import "std:c"
+
+struct StringBuilder {
+    data ^char,
+    len int,
+    cap int,
+    a string
+}
+
+sb_new :: StringBuilder() {
+    var data = malloc(1024)
+    memset(data, 0, 1024)
+    return StringBuilder{data as ^char, 0, 1024}
+}
+
+sb_write_str :: void(sb ^StringBuilder, append string) {
+    var new_len = sb.len + len(append)
+    if new_len > sb.cap {
+	sb.cap = sb.cap * 2
+	sb.data = realloc(sb.data, sb.cap) as ^char
+    }
+    var ptr: ^char = sb.data as ^char
+    memcpy(ptr + sb.len, append.data, len(append))
+    sb.len = new_len
+}
+
+sb_print :: void(sb StringBuilder) {
+    printf(to_cstring("%.*s"), sb.len, sb.data)
+}
+
+sb_to_cstr :: ^char(sb StringBuilder) {
+    return sb.data as ^char
+}
+
+sb_destroy :: void(sb StringBuilder) {
+    free(sb.data)
+}

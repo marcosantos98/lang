@@ -1,7 +1,7 @@
 import "std:c"
 
-add :: void(a int*) {
-    *a += 1
+add :: void(a ^int) {
+    @a += 1
 }
 
 print :: void(a int) {
@@ -15,7 +15,7 @@ main :: void() {
     add(&ns[0])
     printf(to_cstring("%d\n"), ns[0])
     var z = &ns[1]
-    print(*z)
-    *z += 1
-    printf(to_cstring("%d\n"), *z)
+    print(@z)
+    @z += 1
+    printf(to_cstring("%d\n"), @z)
 }
