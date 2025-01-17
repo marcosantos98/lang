@@ -108,6 +108,7 @@ TranspileCtx :: struct {
         AS_VAR_EXPR,
         IN_STRUCT_INIT,
         FOR_INIT,
+        TO_CSTR,
     },
 
     // functions
@@ -427,6 +428,11 @@ visit_fn_call_expr :: proc(visitor: Visitor, expr: ^FnCallExpr) {
             case:
                 fmt.panicf("Not implemented for {}", type)
             }
+        } else if expr.name.lit == "c" {
+            prevv := ctx.in_ctx
+            ctx.in_ctx = .TO_CSTR
+            visit(visitor, expr.args[0])
+            ctx.in_ctx = prevv
         } else {
             write("{}(", expr.name.lit)
             for arg, idx in expr.args {
@@ -464,7 +470,7 @@ visit_fn_call_expr :: proc(visitor: Visitor, expr: ^FnCallExpr) {
             }
             write(");\n")
         }
-    case .FOR_INIT:
+    case .FOR_INIT, .TO_CSTR:
         panic("UPSIE")
     }
 }
@@ -500,6 +506,8 @@ visit_literal_expr :: proc(visitor: Visitor, expr: ^LiteralExpr) {
             ctx.str_id += 1
         case .FOR_INIT:
             panic("UPSIE")
+        case .TO_CSTR:
+            write("\"{}\"", expr.lit.lit)
         }
     case .NUMBER, .BOOL:
         write("{}", expr.lit.lit)
@@ -582,7 +590,7 @@ visit_auto_cast_expr :: proc(visitor: Visitor, expr: ^AutoCastExpr) {
         type := ctx.structs_info[ctx.curr_struct_init].fields[ctx.curr_struct_init_field].type
         write("({})", type)
         visit(visitor, expr.expr)
-    case .FOR_INIT:
+    case .FOR_INIT, .TO_CSTR:
         panic("UPSIE")
     }
 }
@@ -625,7 +633,7 @@ visit_array_type_expr :: proc(visitor: Visitor, expr: ^ArrayTypeExpr) {
             }
         }
         write("}}")
-    case .AS_ARG, .IN_STRUCT_INIT, .FOR_INIT:
+    case .AS_ARG, .IN_STRUCT_INIT, .FOR_INIT, .TO_CSTR:
         fmt.panicf("Not implemented yet {}", ctx.in_ctx)
     }
 }

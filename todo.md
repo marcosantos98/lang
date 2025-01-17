@@ -16,7 +16,7 @@
         - [x] Currently leaks due to need of keep definitions!
     - [ ] Fix: Getting types of struct fields with more than on layer deep breaks: `foo.bar.baz`
     - [x] Fix: `fncall(fncall2())` breaks cause transpiler places `;` at argument level
-    - [ ] Add `cstring` internal to place string instead of creating a lenght string.
+    - [x] Add `cstring` internal to place string instead of creating a lenght string.
 - Parser
     - [ ] Add positions to expressions?
     - [ ] Allow empty init/cond/post in for loop statement

@@ -25,7 +25,7 @@ sb_write_str :: void(sb ^StringBuilder, append string) {
 }
 
 sb_print :: void(sb StringBuilder) {
-    printf(to_cstring("%.*s"), sb.len, sb.data)
+    printf(c("%.*s"), sb.len, sb.data)
 }
 
 sb_to_cstr :: ^char(sb StringBuilder) {
