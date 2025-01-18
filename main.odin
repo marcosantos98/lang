@@ -1752,11 +1752,12 @@ Options :: struct {
     out:                string,
     compile_with_debug: bool,
     run:                bool,
+    cflags:             [dynamic]string,
 }
 
 options_for_cmd := map[string][]string {
-    "run"   = {"-o", "-d"},
-    "build" = {"-o", "-d"},
+    "run"   = {"-o", "-d", "-cf"},
+    "build" = {"-o", "-d", "-cf"},
 }
 
 parse_args :: proc() -> (Options, bool) {
@@ -1792,8 +1793,12 @@ parse_args :: proc() -> (Options, bool) {
         panic("Commmand not implemented!")
     }
 
-    for arg, idx in os.args {
-        if idx == 0 || !strings.starts_with(arg, "-") {continue}
+    for idx := 0; idx < len(os.args); {
+        arg := os.args[idx]
+        if idx == 0 || !strings.starts_with(arg, "-") {
+            idx += 1
+            continue
+        }
         if slice.contains(options_for_cmd[cmd][:], arg) {
             switch arg {
             case "-o":
@@ -1802,8 +1807,17 @@ parse_args :: proc() -> (Options, bool) {
                     return {}, false
                 }
                 opts.out = os.args[idx + 1]
+                idx += 2
             case "-d":
                 opts.compile_with_debug = true
+                idx += 1
+            case "-cf":
+                if !need_n_args_or(1, idx, "Found `-cf`, but wasn't provided a flag") {
+                    print_usage()
+                    return {}, false
+                }
+                append(&opts.cflags, os.args[idx + 1])
+                idx += 2
             case:
                 panic("Option not implemented")
             }
@@ -1848,6 +1862,9 @@ main :: proc() {
     }
     if opts.out != "" {
         fmt.sbprintf(&cmd_builder, "-o {} ", opts.out)
+    }
+    for cf in opts.cflags {
+        fmt.sbprintf(&cmd_builder, "{} ", cf)
     }
     fmt.sbprintf(&cmd_builder, "{} ", filectx.file.cpp_path)
 
