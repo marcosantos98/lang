@@ -5,7 +5,7 @@
     - [ ] Autolink libraries using the provided libname in extern
     - [ ] Add `build.bat` and `build.sh`
 - Translation
-    - [ ] Don't reinclude included files.
+    - [x] Don't reinclude included files.
     - [ ] Package definitions to help with transpile. add package name to begin of each module declaration
     - [ ] Currently the extern libname isnt used at all
     - [ ] Type inference from struct fields

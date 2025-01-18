@@ -92,8 +92,13 @@ visit :: proc(visitor: Visitor, node: ^AstNode) {
     }
 }
 
+ModPath :: struct {
+    name:             string,
+    already_included: bool,
+}
+
 TranspileCtx :: struct {
-    std_mod_paths:          map[string]string,
+    std_mod_paths:          map[string]ModPath,
     has_main:               bool,
 
     // write stuff
@@ -306,12 +311,12 @@ write :: proc(fmt_: string, args: ..any) {
 
 STD_ROOT :: #config(STD_ROOT, "V:/dev/lang/std")
 
-collect_std_mods :: proc() -> map[string]string {
+collect_std_mods :: proc() -> map[string]ModPath {
     mods, _ := filepath.glob(fmt.tprintf("{}/*.lang", STD_ROOT))
-    std_mods := make(map[string]string, context.temp_allocator)
+    std_mods := make(map[string]ModPath, context.temp_allocator)
     for mod in mods {
         file := strings.split(filepath.base(mod), ".", context.temp_allocator)[0]
-        std_mods[file] = mod
+        std_mods[file] = ModPath{mod, false}
     }
     return std_mods
 }
@@ -767,7 +772,11 @@ transpile_cpp :: proc(ast: []^AstNode) {
     for node in ast {
         if import_decl, ok := node.as.(^ImportDeclStmt); ok {
             if name, is := is_named_import(import_decl.path.lit); is {
-                deal_with_import(ctx.std_mod_paths[name])
+                if !ctx.std_mod_paths[name].already_included {
+                    deal_with_import(ctx.std_mod_paths[name].name)
+                    val := &ctx.std_mod_paths[name]
+                    val.already_included = true
+                }
             } else {
                 fmt.panicf("Invalid path {}", import_decl.path.lit)
             }
