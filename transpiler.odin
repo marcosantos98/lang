@@ -659,7 +659,10 @@ visit_array_index_expr :: proc(visitor: Visitor, expr: ^ArrayIndexExpr) {
 // :if_stmt
 visit_if_stmt :: proc(visitor: Visitor, stmt: ^IfStmt) {
     write("if (")
+    prev := ctx.in_ctx
+    ctx.in_ctx = .AS_ARG
     visit(visitor, stmt.cond)
+    ctx.in_ctx = prev
     write(") ")
     visit(visitor, stmt.block)
     if stmt.else_ != nil {
@@ -735,6 +738,11 @@ deal_with_import :: proc(import_path: string) {
 
 transpile_file :: proc(ast: []^AstNode) {
     ctx.std_mod_paths = collect_std_mods()
+
+    // note(marco) remove this when typedef
+    ctx.write_state = .DEFINE
+    write("typedef unsigned char uchar;\n")
+    ctx.write_state = .DECL
 
     transpile_cpp(ast)
 }
