@@ -32,7 +32,7 @@
     - [ ] Allow use of compiler flags on parsing
         - Something like: `#cflags="-c"`
     - [x] Explicit cast: `"asas" as cstr`
-        - [ ] Breaks on `x as y + 3`. This is probably fixed with parentisis expression.
+        - [x] Breaks on `x as y + 3`. This is probably fixed with parentisis expression.
     - [ ] Type definition: `typedef ...`
     - [ ] Change assigns flags to an enum.
 - Testing

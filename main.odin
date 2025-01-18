@@ -323,6 +323,7 @@ NodeType :: union {
     ^ArrayIndexExpr,
     ^VarArgsExpr,
     ^AsExpr,
+    ^ParenExpr,
 }
 
 Expr :: struct {
@@ -333,6 +334,11 @@ Expr :: struct {
 AssignFlag :: enum {
     PLUS,
     MINUS,
+}
+
+ParenExpr :: struct {
+    using _: Expr,
+    expr:    ^Expr,
 }
 
 AsExpr :: struct {
@@ -410,6 +416,7 @@ ExprType :: union {
     ^ArrayIndexExpr,
     ^VarArgsExpr,
     ^AsExpr,
+    ^ParenExpr,
 }
 
 Statement :: struct {
@@ -1405,6 +1412,28 @@ parse_var_args_expr :: proc(filectx: ^FileContext) -> (^AstNode, bool) {
     return newstmtnode(node), true
 }
 
+// :parent_expr
+parse_paren_expr :: proc(filectx: ^FileContext) -> (^AstNode, bool) {
+
+    adv(filectx) // (
+    expr := parse_as_stmt_expr_or(filectx, "Parsed to parse parentheses expression")
+
+    fmt.assertf(
+        tok(filectx).type == .CLOSE_PAREN,
+        "{} Expected `)`, but found `{}`",
+        tokloc(filectx),
+        tok(filectx).lit,
+    )
+
+    adv(filectx) // )
+
+    node := newnode(ParenExpr)
+    node.as_expr = node
+    node.expr = expr
+
+    return newstmtnode(node), true
+}
+
 parse_primary :: proc(filectx: ^FileContext) -> (^AstNode, bool) {
     trace("ParsePrimary")
     #partial switch tok(filectx).type {
@@ -1438,6 +1467,8 @@ parse_primary :: proc(filectx: ^FileContext) -> (^AstNode, bool) {
         if next_two_are(filectx, .DOT, .DOT) {
             return parse_var_args_expr(filectx)
         }
+    case .OPEN_PAREN:
+        return parse_paren_expr(filectx)
     }
     fmt.panicf("Parser: {} Not valid primary: {}", tokloc(filectx), tok(filectx).lit)
 }

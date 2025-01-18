@@ -8,5 +8,6 @@ main :: void() {
     var p = i < j
     var g = j > l
     var k = l % 2
+    var o = 3 + (5 * 2)
     exit(i)
 }

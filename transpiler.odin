@@ -31,6 +31,7 @@ Visitor :: struct {
     visit_array_type_expr:   proc(visitor: Visitor, node: ^ArrayTypeExpr),
     visit_array_index_expr:  proc(visitor: Visitor, node: ^ArrayIndexExpr),
     visit_as_expr:           proc(visitor: Visitor, node: ^AsExpr),
+    visit_paren_expr:        proc(visitor: Visitor, node: ^ParenExpr),
 }
 
 visit :: proc(visitor: Visitor, node: ^AstNode) {
@@ -82,6 +83,8 @@ visit :: proc(visitor: Visitor, node: ^AstNode) {
         visitor.visit_array_index_expr(visitor, stmt)
     case ^AsExpr:
         visitor.visit_as_expr(visitor, stmt)
+    case ^ParenExpr:
+        visitor.visit_paren_expr(visitor, stmt)
     case ^ExprStmt:
         visit(visitor, stmt.expr)
     case ^Statement, ^DerefExpr:
@@ -209,6 +212,8 @@ type_from_expr :: proc(expr: ^Expr) -> string {
         return var_type
     case ^AsExpr:
         return "UPSIE"
+    case ^ParenExpr:
+        return type_from_expr(e.expr)
     case:
         fmt.panicf("Not implemented for {}", e)
     }
@@ -695,6 +700,13 @@ visit_as_expr :: proc(visitor: Visitor, expr: ^AsExpr) {
     visit(visitor, expr.lhs)
 }
 
+// :parent_expr
+visit_paren_expr :: proc(visitor: Visitor, expr: ^ParenExpr) {
+    write("(")
+    visit(visitor, expr.expr)
+    write(")")
+}
+
 deal_with_import :: proc(import_path: string) {
     file := FileContext{}
     file.file.file_path = import_path
@@ -749,6 +761,7 @@ transpile_cpp :: proc(ast: []^AstNode) {
         visit_array_type_expr,
         visit_array_index_expr,
         visit_as_expr,
+        visit_paren_expr,
     }
 
     for node in ast {
