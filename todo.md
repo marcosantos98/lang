@@ -37,11 +37,13 @@
     - [ ] Change assigns flags to an enum.
     - [x] Floats
     - [ ] Enums
+    - [ ] Constant expressions `const a = 10`
+    - [ ] Fix `x.y[z]` breaks. 
 - Testing
     - [ ] Maybe remove the translation tests
     - [ ] Add test for compiled executable output
     - [ ] Add `-fo` option to format cpp output with `clang-format`
 - Internal + STD
-    - [ ] Dynamic array
+    - [x] Dynamic array
     - [ ] Maps
     - [ ] Typeinfo
