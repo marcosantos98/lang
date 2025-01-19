@@ -44,6 +44,7 @@ TokenType :: enum {
     COMMA,
     LIT_STR,
     LIT_NUMBER,
+    LIT_FLOAT,
     PLUS,
     PLUS_EQ,
     MINUS_EQ,
@@ -106,12 +107,17 @@ tokenize :: proc(file_context: ^FileContext) -> bool {
         return end
     }
 
-    tokenize_number :: proc(file_ctx: ^FileContext, cursor: int) -> int {
+    tokenize_number :: proc(file_ctx: ^FileContext, cursor: int) -> (int, bool) {
         end := cursor
-        for !is_eof(file_ctx, end) && is_digit(file_ctx.file.content[end]) {
+        has_dot := false
+        for !is_eof(file_ctx, end) && (is_digit(file_ctx.file.content[end]) || file_ctx.file.content[end] == '.') {
             end += 1
+            if file_ctx.file.content[end] == '.' {
+                fmt.assertf(!has_dot, "Number already contains a `.`")
+                has_dot = true
+            }
         }
-        return end
+        return end, has_dot
     }
 
     tokenize_comment :: proc(filectx: ^FileContext, cursor: int) -> int {
@@ -257,8 +263,9 @@ tokenize :: proc(file_context: ^FileContext) -> bool {
                 col += cursor - start
             } else if is_digit(file_context.file.content[cursor]) {
                 start := cursor
-                cursor = tokenize_number(file_context, cursor)
-                append(&tokens, make_token(.LIT_NUMBER, start, cursor, col, row, file_context))
+                float := false
+                cursor, float = tokenize_number(file_context, cursor)
+                append(&tokens, make_token(float ? .LIT_FLOAT : .LIT_NUMBER, start, cursor, col, row, file_context))
                 col += cursor - start
             } else {
                 fmt.printfln(
@@ -539,6 +546,7 @@ LiteralExpr :: struct {
     type:       enum {
         STRING,
         NUMBER,
+        NUMBER_FLOAT,
         BOOL,
     },
     lit:        Token,
@@ -1350,6 +1358,18 @@ parse_lit_number :: proc(filectx: ^FileContext) -> (^AstNode, bool) {
     return newstmtnode(node), true
 }
 
+// :lit_float
+parse_lit_float :: proc(filectx: ^FileContext) -> (^AstNode, bool) {
+    trace("LitNumberFloat")
+    lit := tok(filectx)
+    adv(filectx)
+    node := newnode(LiteralExpr)
+    node.as_expr = node
+    node.type = .NUMBER_FLOAT
+    node.lit = lit
+    return newstmtnode(node), true
+}
+
 parse_arr_type_expr :: proc(filectx: ^FileContext) -> (^AstNode, bool) {
     trace("ArrayTypeExpr")
     adv(filectx) // [
@@ -1443,6 +1463,8 @@ parse_primary :: proc(filectx: ^FileContext) -> (^AstNode, bool) {
         return parse_lit_str(filectx)
     case .LIT_NUMBER:
         return parse_lit_number(filectx)
+    case .LIT_FLOAT:
+        return parse_lit_float(filectx)
     case .OPEN_CBRACKET:
         return parse_block_stmt(filectx)
     case .AMPERSAND:

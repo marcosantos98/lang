@@ -35,7 +35,13 @@
         - [x] Breaks on `x as y + 3`. This is probably fixed with parentisis expression.
     - [ ] Type definition: `typedef ...`
     - [ ] Change assigns flags to an enum.
+    - [x] Floats
+    - [ ] Enums
 - Testing
     - [ ] Maybe remove the translation tests
     - [ ] Add test for compiled executable output
     - [ ] Add `-fo` option to format cpp output with `clang-format`
+- Internal + STD
+    - [ ] Dynamic array
+    - [ ] Maps
+    - [ ] Typeinfo

@@ -3,4 +3,5 @@ import "std:c"
 main :: void() {
     puts(c("Hello World"))
     exit(1)
+    var j = 1.356
 }

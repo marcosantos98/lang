@@ -176,6 +176,8 @@ type_from_expr :: proc(expr: ^Expr) -> string {
             return "string"
         case .NUMBER:
             return "int"
+        case .NUMBER_FLOAT:
+            return "float"
         case .BOOL:
             return "bool"
         }
@@ -519,7 +521,7 @@ visit_literal_expr :: proc(visitor: Visitor, expr: ^LiteralExpr) {
         case .TO_CSTR:
             write("\"{}\"", expr.lit.lit)
         }
-    case .NUMBER, .BOOL:
+    case .NUMBER, .BOOL, .NUMBER_FLOAT:
         write("{}", expr.lit.lit)
     }
 }
