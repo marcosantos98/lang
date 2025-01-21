@@ -1,3 +1,5 @@
+import "std:c"
+
 main :: void() {
     var xs = [dynamic]int{}
     append_dynamic_array(&xs, 1)
