@@ -10,7 +10,7 @@ main :: void() {
     var c = true
     var d = false
     
-    puts(c(b))
+    printf(c("%s"), b.data)
 
     thing(d)
 }
