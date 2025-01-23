@@ -20,6 +20,7 @@ FileContext :: struct {
         is_type_parse: bool,
         is_arr:        bool,
         as_expr:       bool,
+        in_fn_decl:    bool,
     },
     cursor: int,
     tokens: []Token,
@@ -541,11 +542,13 @@ ImportDeclStmt :: struct {
 }
 
 VarDeclStmt :: struct {
-    using _: Statement,
-    name:    Token,
-    type:    ^Expr,
-    expr:    ^Expr,
-    typed:   bool,
+    using _:  Statement,
+    name:     Token,
+    type:     ^Expr,
+    expr:     ^Expr,
+    typed:    bool,
+    constant: bool,
+    global:   bool,
 }
 
 BlockStmt :: struct {
@@ -668,9 +671,13 @@ parse_import_stmt :: proc(filectx: ^FileContext) -> (^AstNode, bool) {
     return node, true
 }
 
+// :var_decl
 parse_var_decl_stmt :: proc(filectx: ^FileContext) -> (^AstNode, bool) {
 
-    adv(filectx) // var
+    global := filectx.parser.in_fn_decl == false
+    constant := tok_is_keyword(filectx, .CONST)
+
+    adv(filectx) // var, const
 
     name := tok(filectx)
     trace("VarDeclExpr ({})", name.lit)
@@ -707,6 +714,8 @@ parse_var_decl_stmt :: proc(filectx: ^FileContext) -> (^AstNode, bool) {
     node.name = name
     node.type = type
     node.typed = typed
+    node.constant = constant
+    node.global = global
 
     return node, true
 }
@@ -806,7 +815,11 @@ parse_fn_call_expr :: proc(filectx: ^FileContext) -> (^AstNode, bool) {
     return newstmtnode(fn_call), true
 }
 
+// :fn_decl
 parse_fn_decl_stmt :: proc(filectx: ^FileContext) -> (^AstNode, bool) {
+
+    filectx.parser.in_fn_decl = true
+
     trace("FnDeclStmt")
     flags := bit_set[FnFlags]{}
     lib: Token
@@ -880,6 +893,9 @@ parse_fn_decl_stmt :: proc(filectx: ^FileContext) -> (^AstNode, bool) {
     node.ret_type = type
     node.name = name
     node.params = parameters[:]
+
+    filectx.parser.in_fn_decl = false
+
     return node, true
 }
 
@@ -1293,7 +1309,7 @@ try_parse_identifier :: proc(filectx: ^FileContext) -> (^AstNode, bool) {
             return parse_struct_decl_stmt(filectx)
         case .RETURN:
             return parse_return_stmt(filectx)
-        case .VAR:
+        case .VAR, .CONST:
             return parse_var_decl_stmt(filectx)
         case .AUTO_CAST:
             return parse_auto_cast_expr(filectx)
@@ -1631,6 +1647,7 @@ Keywords :: enum {
     STRUCT,
     RETURN,
     VAR,
+    CONST,
     AUTO_CAST,
     AS,
 }
@@ -1650,6 +1667,7 @@ keywords := map[string]Keywords {
     "var"    = .VAR,
     "xx"     = .AUTO_CAST,
     "as"     = .AS,
+    "const"  = .CONST,
 }
 // ;parser
 

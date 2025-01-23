@@ -131,9 +131,13 @@ TranspileCtx :: struct {
     curr_struct_init_field: int,
     structs_info:           map[string]StructInfo,
     vars:                   map[string]string,
+    c_fn_info:              ^FunctionInfo,
 
     // other
     str_id:                 int,
+
+    // global_vars
+    global_var:             map[string]ScopeVariable,
 }
 
 ScopeVariable :: struct {
@@ -151,16 +155,37 @@ StructInfo :: struct {
     fields: [dynamic]ScopeVariable,
 }
 
+// :collect_type_data
+collect_var_decl :: proc(stmt: ^VarDeclStmt) {
+    name := stmt.name.lit
+
+    type := stmt.typed ? type_from_expr(stmt.type) : type_from_expr(stmt.expr)
+    if stmt.global {
+        // FIXME: check is array
+        ctx.global_var[name] = {name, type, false}
+    } else {
+        // FIXME: check is array
+        fn_info := &ctx.functions_info[ctx.curr_fn]
+        fn_info.scope_variables[name] = {name, type, false}
+    }
+}
+
 type_for_var_in_fn :: proc(var, fn: string) -> string {
     return ctx.functions_info[fn].scope_variables[var].type
 }
 
+// :inference
 type_from_expr :: proc(expr: ^Expr) -> string {
     switch e in expr.as_expr {
     case ^NotExpr:
         return "bool"
     case ^VarExpr:
-        if e.name.lit in ctx.vars {
+        if e.name.lit in ctx.global_var {
+            if e.is_pointer {
+                return fmt.tprintf("{}*", ctx.global_var[e.name.lit].type)
+            }
+            return ctx.global_var[e.name.lit].type
+        } else if e.name.lit in ctx.vars {
             if e.is_pointer {
                 return fmt.tprintf("{}*", ctx.vars[e.name.lit])
             }
@@ -238,7 +263,9 @@ type_from_expr :: proc(expr: ^Expr) -> string {
 
 collect_scope_info :: proc(stmt: ^FnDeclStmt) {
     name := stmt.name.lit
-    fni := FunctionInfo{}
+    ctx.functions_info[name] = {}
+    fni := &ctx.functions_info[name]
+    ctx.c_fn_info = fni
     fni.return_type = type_from_expr(stmt.ret_type)
     ctx.curr_fn = name
 
@@ -248,20 +275,10 @@ collect_scope_info :: proc(stmt: ^FnDeclStmt) {
         append(&fni.params, ScopeVariable{param.name.lit, type_from_expr(param.type), false})
     }
 
-    ctx.functions_info[name] = fni
-
     do_block :: proc(block: ^BlockStmt, fni: ^FunctionInfo) {
         for body_stmt in block.exprs {
             if var_decl, ok := body_stmt.as.(^VarDeclStmt); ok {
-                var_name := var_decl.name.lit
-                if var_decl.typed {
-                    ctx.vars[var_name] = type_from_expr(var_decl.type)
-                    fni.scope_variables[var_name] = {var_name, type_from_expr(var_decl.type), false}
-                } else {
-                    _, is_array := var_decl.expr.as_expr.(^ArrayTypeExpr)
-                    ctx.vars[var_name] = type_from_expr(var_decl.expr)
-                    fni.scope_variables[var_name] = {var_name, type_from_expr(var_decl.expr), is_array}
-                }
+                collect_var_decl(var_decl)
             } else if for_stmt, is_ok := body_stmt.as.(^ForStmt); is_ok {
                 // FIXME: doesnt check body
                 if var, var_ok := for_stmt.init.as.(^VarDeclStmt); var_ok {
@@ -288,10 +305,8 @@ collect_scope_info :: proc(stmt: ^FnDeclStmt) {
     }
 
     if .EXTERNAL not_in stmt.flags {
-        do_block(stmt.block, &fni)
+        do_block(stmt.block, fni)
     }
-
-    ctx.functions_info[name] = fni
 }
 
 collect_struct_info :: proc(stmt: ^StructDeclStmt) {
@@ -416,7 +431,16 @@ visit_var_expr :: proc(visitor: Visitor, expr: ^VarExpr) {
 
 // :var_decl
 visit_var_decl_stmt :: proc(visitor: Visitor, stmt: ^VarDeclStmt) {
+    if stmt.constant {
+        write("constexpr ")
+    }
     type := type_for_var_in_fn(stmt.name.lit, ctx.curr_fn)
+    if type == "" {
+        fmt.println(type, stmt.name.lit)
+        if stmt.name.lit in ctx.global_var {
+            type = ctx.global_var[stmt.name.lit].type
+        }
+    }
     is_array := ctx.functions_info[ctx.curr_fn].scope_variables[stmt.name.lit].is_array
     if !is_array || strings.starts_with(type, "DynamicArray") {
         write("{} {} = ", type, stmt.name.lit)
@@ -872,6 +896,8 @@ transpile_cpp :: proc(ast: []^AstNode) {
     for node in ast {
         if fn_decl, ok := node.as.(^FnDeclStmt); ok {
             collect_scope_info(fn_decl)
+        } else if var_decl, var_ok := node.as.(^VarDeclStmt); var_ok {
+            collect_var_decl(var_decl)
         } else if struct_decl, is_ok := node.as.(^StructDeclStmt); is_ok {
             collect_struct_info(struct_decl)
         }
