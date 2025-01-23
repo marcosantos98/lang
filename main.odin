@@ -717,11 +717,7 @@ parse_block_stmt :: proc(filectx: ^FileContext) -> (^BlockStmt, bool) {
     exprs := make([dynamic]^Statement, context.temp_allocator)
     adv(filectx) // {
     for tok(filectx).type != .CLOSE_CBRACKET {
-        fmt.assertf(
-            tok(filectx).type != .EOF,
-            "Expect either statemt or block close `}`, found end of file",
-            tok(filectx).lit,
-        )
+        fmt.assertf(tok(filectx).type != .EOF, "Expect either statemt or block close `}}`, found end of file")
         if expr, ok := int_parse(filectx); ok {
             append(&exprs, cast(^Statement)expr)
         } else {
@@ -776,11 +772,7 @@ parse_fn_call_expr :: proc(filectx: ^FileContext) -> (^AstNode, bool) {
 
     args := make([dynamic]^Expr, context.temp_allocator)
     for tok(filectx).type != .CLOSE_PAREN {
-        fmt.assertf(
-            tok(filectx).type != .EOF,
-            "Expect either proc parameters or `)`, found end of file",
-            tok(filectx).lit,
-        )
+        fmt.assertf(tok(filectx).type != .EOF, "Expect either proc parameters or `)`, found end of file")
         // FIXME: maybe only parse expr?
 
         expr := parse_as_stmt_expr_or(filectx, "Failed to parse function call argument")
@@ -835,11 +827,7 @@ parse_fn_decl_stmt :: proc(filectx: ^FileContext) -> (^AstNode, bool) {
     fmt.assertf(tok(filectx).type == .OPEN_PAREN, "Expect `(` after proc type found {}", tok(filectx).lit)
     adv(filectx) // (
     for tok(filectx).type != .CLOSE_PAREN {
-        fmt.assertf(
-            tok(filectx).type != .EOF,
-            "Expect either proc parameters or `)`, found end of file",
-            tok(filectx).lit,
-        )
+        fmt.assertf(tok(filectx).type != .EOF, "Expect either proc parameters or `)`, found end of file")
         fmt.assertf(
             tok(filectx).type == .IDENTIFIER,
             "Expect proc parameters (name + type), found {}",
@@ -1176,11 +1164,7 @@ parse_struct_decl_stmt :: proc(filectx: ^FileContext) -> (^AstNode, bool) {
 
     fields := make([dynamic]FnArg, context.temp_allocator)
     for tok(filectx).type != .CLOSE_CBRACKET {
-        fmt.assertf(
-            tok(filectx).type != .EOF,
-            "Expect either struct fields or `}`, found end of file",
-            tok(filectx).lit,
-        )
+        fmt.assertf(tok(filectx).type != .EOF, "Expect either struct fields or `}}`, found end of file")
         fmt.assertf(tok(filectx).type == .IDENTIFIER, "Expect struct field (name + type), found {}", tok(filectx).lit)
         arg_name := tok(filectx)
         adv(filectx) // arg_name
@@ -1213,11 +1197,7 @@ parse_struct_init_expr :: proc(filectx: ^FileContext) -> (^AstNode, bool) {
 
     values := make([dynamic]^Expr, context.temp_allocator)
     for tok(filectx).type != .CLOSE_CBRACKET {
-        fmt.assertf(
-            tok(filectx).type != .EOF,
-            "Expect either expression or block close `}`, found end of file",
-            tok(filectx).lit,
-        )
+        fmt.assertf(tok(filectx).type != .EOF, "Expect either expression or block close `}}`, found end of file")
 
         if expr, ok := int_parse(filectx); ok {
             append(&values, expr.as.(^ExprStmt).expr)
@@ -1397,11 +1377,7 @@ parse_arr_type_expr :: proc(filectx: ^FileContext) -> (^AstNode, bool) {
         adv(filectx) // {
         value_list = make([dynamic]^Expr, context.temp_allocator)
         for tok(filectx).type != .CLOSE_CBRACKET {
-            fmt.assertf(
-                tok(filectx).type != .EOF,
-                "Expect value or block close `}`, found end of file",
-                tok(filectx).lit,
-            )
+            fmt.assertf(tok(filectx).type != .EOF, "Expect value or block close `}}`, found end of file")
 
             value := parse_as_stmt_expr_or(filectx, "Failed to parse array value")
             append(&value_list, value)
@@ -1858,10 +1834,10 @@ main :: proc() {
         return
     }
 
-    if _, ok := exec("clang++ --version", {.GARBAGE_OUT, .DONT_HURT_ON_FAIL}); !ok {
-        fmt.eprintln("Error: Didn't find `clang++`. Be sure to have it on path and installed.")
-        return
-    }
+    //if _, ok := exec("clang++ --version", {.GARBAGE_OUT, .DONT_HURT_ON_FAIL}); !ok {
+    //    fmt.eprintln("Error: Didn't find `clang++`. Be sure to have it on path and installed.")
+    //    return
+    //}
 
     opts, ok := parse_args()
     if !ok {
