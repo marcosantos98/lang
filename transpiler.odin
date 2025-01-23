@@ -32,6 +32,7 @@ Visitor :: struct {
     visit_array_index_expr:  proc(visitor: Visitor, node: ^ArrayIndexExpr),
     visit_as_expr:           proc(visitor: Visitor, node: ^AsExpr),
     visit_paren_expr:        proc(visitor: Visitor, node: ^ParenExpr),
+    visit_not_expr:          proc(visitor: Visitor, node: ^NotExpr),
 }
 
 visit :: proc(visitor: Visitor, node: ^AstNode) {
@@ -85,6 +86,8 @@ visit :: proc(visitor: Visitor, node: ^AstNode) {
         visitor.visit_as_expr(visitor, stmt)
     case ^ParenExpr:
         visitor.visit_paren_expr(visitor, stmt)
+    case ^NotExpr:
+        visitor.visit_not_expr(visitor, stmt)
     case ^ExprStmt:
         visit(visitor, stmt.expr)
     case ^Statement, ^DerefExpr:
@@ -154,6 +157,8 @@ type_for_var_in_fn :: proc(var, fn: string) -> string {
 
 type_from_expr :: proc(expr: ^Expr) -> string {
     switch e in expr.as_expr {
+    case ^NotExpr:
+        return "bool"
     case ^VarExpr:
         if e.name.lit in ctx.vars {
             if e.is_pointer {
@@ -733,6 +738,16 @@ visit_paren_expr :: proc(visitor: Visitor, expr: ^ParenExpr) {
     write(")")
 }
 
+// :not_expr
+visit_not_expr :: proc(visitor: Visitor, expr: ^NotExpr) {
+    write("!")
+
+    prev := ctx.in_ctx
+    ctx.in_ctx = .AS_ARG
+    visit(visitor, expr.expr)
+    ctx.in_ctx = prev
+}
+
 deal_with_import :: proc(import_path: string) {
     file := FileContext{}
     file.file.file_path = import_path
@@ -824,6 +839,7 @@ transpile_cpp :: proc(ast: []^AstNode) {
         visit_array_index_expr,
         visit_as_expr,
         visit_paren_expr,
+        visit_not_expr,
     }
 
     for node in ast {

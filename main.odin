@@ -61,6 +61,7 @@ TokenType :: enum {
     CLOSE_SQRB,
     CARET,
     AT,
+    NOT,
     EOF,
 }
 
@@ -153,6 +154,10 @@ tokenize :: proc(file_context: ^FileContext) -> bool {
             cursor += 1
         case ':':
             append(&tokens, make_token(.COLON, cursor, cursor + 1, col, row, file_context))
+            col += 1
+            cursor += 1
+        case '!':
+            append(&tokens, make_token(.NOT, cursor, cursor + 1, col, row, file_context))
             col += 1
             cursor += 1
         case ';':
@@ -331,6 +336,7 @@ NodeType :: union {
     ^VarArgsExpr,
     ^AsExpr,
     ^ParenExpr,
+    ^NotExpr,
 }
 
 Expr :: struct {
@@ -341,6 +347,11 @@ Expr :: struct {
 AssignFlag :: enum {
     PLUS,
     MINUS,
+}
+
+NotExpr :: struct {
+    using _: Expr,
+    expr:    ^Expr,
 }
 
 ParenExpr :: struct {
@@ -424,6 +435,7 @@ ExprType :: union {
     ^VarArgsExpr,
     ^AsExpr,
     ^ParenExpr,
+    ^NotExpr,
 }
 
 Statement :: struct {
@@ -1430,6 +1442,19 @@ parse_paren_expr :: proc(filectx: ^FileContext) -> (^AstNode, bool) {
     return newstmtnode(node), true
 }
 
+// :not
+parse_not_expr :: proc(filectx: ^FileContext) -> (^AstNode, bool) {
+
+    adv(filectx) // !
+    expr := parse_as_stmt_expr_or(filectx, "Failed to parse not expression")
+
+    node := newnode(NotExpr)
+    node.as_expr = node
+    node.expr = expr
+
+    return newstmtnode(node), true
+}
+
 parse_primary :: proc(filectx: ^FileContext) -> (^AstNode, bool) {
     trace("ParsePrimary")
     #partial switch tok(filectx).type {
@@ -1467,6 +1492,8 @@ parse_primary :: proc(filectx: ^FileContext) -> (^AstNode, bool) {
         }
     case .OPEN_PAREN:
         return parse_paren_expr(filectx)
+    case .NOT:
+        return parse_not_expr(filectx)
     }
     fmt.panicf("Parser: {} Not valid primary: {}", tokloc(filectx), tok(filectx).lit)
 }

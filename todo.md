@@ -24,10 +24,11 @@
     - [x] Expandable arguments
         - This is actual the `...` in C land. This is need for the C functions like `printf`.
         - Currently is only used in translation to actual place the `...` in the function declaration.
-    - [ ] Fix: `<` has lower precedence than `+`
+    - [ ] Fix: `<` has lower precedence than `+`. `a + b > c` breaks
     - [x] Allow symbols on identifiers like: _, 0-9
     - [ ] Allow functions on structs
     - [ ] Add: ==, !, <=, >=
+        - [x] `!`
     - [ ] Change StructFieldExpr to SelectorExpr and allow `fncall().x`
     - [ ] Allow use of compiler flags on parsing
         - Something like: `#cflags="-c"`
@@ -38,12 +39,16 @@
     - [x] Floats
     - [ ] Enums
     - [ ] Constant expressions `const a = 10`
-    - [ ] Fix `x.y[z]` breaks. 
+    - [ ] Fix `x.y[z]` breaks.
+    - [ ] `-100` breaks
 - Testing
     - [ ] Maybe remove the translation tests
     - [ ] Add test for compiled executable output
     - [ ] Add `-fo` option to format cpp output with `clang-format`
 - Internal + STD
     - [x] Dynamic array
+        - [ ] Reimplement as builtin instead of c++ implementation
+        - [ ] Add builtin functions like `append` that transpiles to the dynamic version
+        - [ ] Add support for `len`
     - [ ] Maps
     - [ ] Typeinfo
