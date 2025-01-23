@@ -277,29 +277,21 @@ collect_scope_info :: proc(stmt: ^FnDeclStmt) {
 
     do_block :: proc(block: ^BlockStmt, fni: ^FunctionInfo) {
         for body_stmt in block.exprs {
-            if var_decl, ok := body_stmt.as.(^VarDeclStmt); ok {
-                collect_var_decl(var_decl)
-            } else if for_stmt, is_ok := body_stmt.as.(^ForStmt); is_ok {
-                // FIXME: doesnt check body
-                if var, var_ok := for_stmt.init.as.(^VarDeclStmt); var_ok {
-                    init_name := var.name.lit
-                    if var.typed {
-                        ctx.vars[init_name] = type_from_expr(var.type)
-                        fni.scope_variables[init_name] = {init_name, type_from_expr(var.type), false}
-                    } else {
-                        _, is_array := var.expr.as_expr.(^ArrayTypeExpr)
-                        ctx.vars[init_name] = type_from_expr(var.expr)
-                        fni.scope_variables[init_name] = {init_name, type_from_expr(var.expr), is_array}
-                    }
-                }
-            } else if if_stmt, if_ok := body_stmt.as.(^IfStmt); if_ok {
-                do_block(if_stmt.block, fni)
-                if if_stmt.else_ != nil {
-                    // FIXME: this doesnt check if else is another if
-                    if elsee, else_ok := if_stmt.else_.as.(^BlockStmt); else_ok {
-                        do_block(elsee, fni)
-                    }
-                }
+            switch expr in body_stmt.as_stmt {
+            case ^VarDeclStmt:
+                collect_var_decl(expr)
+            case ^BlockStmt:
+                do_block(expr, fni)
+            case ^WhileStmt:
+                do_block(expr.block, fni)
+            case ^IfStmt:
+                // FIXME: doesnt check `else` block
+                do_block(expr.block, fni)
+            case ^ForStmt:
+                // FIXME: check if init is valid var declaration
+                collect_var_decl(expr.init.as.(^VarDeclStmt))
+                do_block(expr.block, fni)
+            case ^FnDeclStmt, ^ImportDeclStmt, ^ExprStmt, ^AssignStmt, ^StructDeclStmt, ^BreakStmt, ^ReturnStmt:
             }
         }
     }
