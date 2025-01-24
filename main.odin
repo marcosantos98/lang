@@ -1530,7 +1530,7 @@ get_tok_precedence :: proc(filectx: ^FileContext) -> int {
     case .ASTERISK, .DIV, .MOD:
         return 40
     case .LT, .GT:
-        return 10
+        return 30
     case .EQ, .PLUS_EQ, .MINUS_EQ:
         return 5
     case .IDENTIFIER:

@@ -30,7 +30,7 @@
     - [x] Expandable arguments
         - This is actual the `...` in C land. This is need for the C functions like `printf`.
         - Currently is only used in translation to actual place the `...` in the function declaration.
-    - [ ] Fix: `<` has lower precedence than `+`. `a + b > c` breaks
+    - [x] Fix: `<` has lower precedence than `+`. `a + b > c` breaks
     - [x] Allow symbols on identifiers like: _, 0-9
     - [ ] Allow functions on structs
     - [ ] Add: ==, !, <=, >=, -, &&, ||, &, |, ^, ~
@@ -45,9 +45,9 @@
     - [ ] Change assigns flags to an enum.
     - [x] Floats
     - [ ] Enums
-    - [ ] Constant expressions `const a = 10`
+    - [x] Constant expressions `const a = 10`
     - [ ] Fix `x.y[z]` breaks.
-    - [ ] `-100` breaks
+    - [x] `-100` breaks
 - Testing
     - [ ] Maybe remove the translation tests
     - [ ] Add test for compiled executable output
