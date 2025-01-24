@@ -1710,6 +1710,7 @@ do_all_passes_on_file :: proc(filectx: ^FileContext, out := true) -> bool {
         return false
     }
 
+    ctx.std_mod_paths = collect_std_mods()
     deal_with_import("./internal/builtin.lang")
     transpile_file(filectx.ast)
 
