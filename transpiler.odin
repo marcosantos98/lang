@@ -156,17 +156,19 @@ StructInfo :: struct {
 }
 
 // :collect_type_data
+get_var_info :: proc(name: string, global: bool) -> ScopeVariable {
+    return global ? ctx.global_var[name] : ctx.functions_info[ctx.curr_fn].scope_variables[name]
+}
+
 collect_var_decl :: proc(stmt: ^VarDeclStmt) {
     name := stmt.name.lit
 
     type := stmt.typed ? type_from_expr(stmt.type) : type_from_expr(stmt.expr)
     if stmt.global {
-        // FIXME: check is array
-        ctx.global_var[name] = {name, type, false}
+        ctx.global_var[name] = {name, type, is_array(stmt.expr)}
     } else {
-        // FIXME: check is array
-        fn_info := &ctx.functions_info[ctx.curr_fn]
-        fn_info.scope_variables[name] = {name, type, false}
+        assert(ctx.c_fn_info != nil)
+        ctx.c_fn_info.scope_variables[name] = {name, type, is_array(stmt.expr)}
     }
 }
 
@@ -191,6 +193,10 @@ type_from_expr :: proc(expr: ^Expr) -> string {
             }
             return ctx.vars[e.name.lit]
         } else if e.name.lit in ctx.functions_info[ctx.curr_fn].scope_variables {
+            type := ctx.functions_info[ctx.curr_fn].scope_variables[e.name.lit].type
+            if e.is_pointer {
+                return fmt.tprintf("{}*", type)
+            }
             return ctx.functions_info[ctx.curr_fn].scope_variables[e.name.lit].type
         } else {
             for param in ctx.functions_info[ctx.curr_fn].params {
@@ -426,15 +432,9 @@ visit_var_decl_stmt :: proc(visitor: Visitor, stmt: ^VarDeclStmt) {
     if stmt.constant {
         write("constexpr ")
     }
-    type := type_for_var_in_fn(stmt.name.lit, ctx.curr_fn)
-    if type == "" {
-        fmt.println(type, stmt.name.lit)
-        if stmt.name.lit in ctx.global_var {
-            type = ctx.global_var[stmt.name.lit].type
-        }
-    }
-    is_array := ctx.functions_info[ctx.curr_fn].scope_variables[stmt.name.lit].is_array
-    if !is_array || strings.starts_with(type, "DynamicArray") {
+    var_info := get_var_info(stmt.name.lit, stmt.global)
+    type := var_info.type
+    if !var_info.is_array || strings.starts_with(type, "DynamicArray") {
         write("{} {} = ", type, stmt.name.lit)
     } else {
         write("{} {}[] =", type, stmt.name.lit)
@@ -661,6 +661,13 @@ visit_assign_stmt :: proc(visitor: Visitor, stmt: ^AssignStmt) {
 // :array_type
 is_dynamic_array :: proc(expr: ^Expr) -> bool {
     if thing, ok := expr.as_expr.(^VarExpr); ok && thing.name.lit == "dynamic" {
+        return true
+    }
+    return false
+}
+
+is_array :: proc(expr: ^Expr) -> bool {
+    if _, ok := expr.as_expr.(^ArrayTypeExpr); ok {
         return true
     }
     return false
