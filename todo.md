@@ -54,9 +54,12 @@
     - [ ] Add `-fo` option to format cpp output with `clang-format`
 - Internal + STD
     - [x] Dynamic array
-        - [ ] Reimplement as builtin instead of c++ implementation
-        - [ ] Add builtin functions like `append` that transpiles to the dynamic version
-        - [ ] Add support for `len`
+        - [x] Reimplement as builtin instead of c++ implementation
+        - [x] Add builtin functions like `append` that transpiles to the dynamic version
+        - [x] Add support for `len`
+        - [x] At:
+            - [ ] Allow the return type to be the type of dynamic
+            - [ ] Allow use of `[]` indexing
     - [ ] Maps
     - [ ] Typeinfo
 - General

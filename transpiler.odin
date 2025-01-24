@@ -141,8 +141,9 @@ TranspileCtx :: struct {
 }
 
 ScopeVariable :: struct {
-    name, type: string,
-    is_array:   bool,
+    name, type:   string,
+    is_array:     bool,
+    dynamic_type: string,
 }
 
 FunctionInfo :: struct {
@@ -164,11 +165,19 @@ collect_var_decl :: proc(stmt: ^VarDeclStmt) {
     name := stmt.name.lit
 
     type := stmt.typed ? type_from_expr(stmt.type) : type_from_expr(stmt.expr)
+    arr := is_array(stmt.expr)
+    dynamic_type := ""
+    if arr {
+        if stmt.expr.as.(^ArrayTypeExpr).len != nil {
+            dynamic_type =
+                is_dynamic_array(stmt.expr.as.(^ArrayTypeExpr).len) ? type_from_expr(stmt.expr.as.(^ArrayTypeExpr).type) : ""
+        }
+    }
     if stmt.global {
-        ctx.global_var[name] = {name, type, is_array(stmt.expr)}
+        ctx.global_var[name] = {name, type, arr, dynamic_type}
     } else {
         assert(ctx.c_fn_info != nil)
-        ctx.c_fn_info.scope_variables[name] = {name, type, is_array(stmt.expr)}
+        ctx.c_fn_info.scope_variables[name] = {name, type, arr, dynamic_type}
     }
 }
 
@@ -230,8 +239,7 @@ type_from_expr :: proc(expr: ^Expr) -> string {
         return type_from_expr(e.lhs)
     case ^ArrayTypeExpr:
         if is_dynamic_array(e.len) {
-            type := type_from_expr(e.type)
-            return fmt.tprintf("DynamicArray<{}>", type)
+            return "RawDynamic"
         }
         return type_from_expr(e.type)
     case ^ArrayIndexExpr:
@@ -277,8 +285,8 @@ collect_scope_info :: proc(stmt: ^FnDeclStmt) {
 
     // Collect provided params
     for param in stmt.params {
-        fni.scope_variables[stmt.name.lit] = {param.name.lit, type_from_expr(param.type), false}
-        append(&fni.params, ScopeVariable{param.name.lit, type_from_expr(param.type), false})
+        fni.scope_variables[stmt.name.lit] = {param.name.lit, type_from_expr(param.type), false, ""}
+        append(&fni.params, ScopeVariable{param.name.lit, type_from_expr(param.type), false, ""})
     }
 
     do_block :: proc(block: ^BlockStmt, fni: ^FunctionInfo) {
@@ -312,7 +320,7 @@ collect_struct_info :: proc(stmt: ^StructDeclStmt) {
     si := StructInfo{}
 
     for field in stmt.fields {
-        append(&si.fields, ScopeVariable{field.name.lit, type_from_expr(field.type), false})
+        append(&si.fields, ScopeVariable{field.name.lit, type_from_expr(field.type), false, ""})
     }
 
     ctx.structs_info[name] = si
@@ -434,7 +442,7 @@ visit_var_decl_stmt :: proc(visitor: Visitor, stmt: ^VarDeclStmt) {
     }
     var_info := get_var_info(stmt.name.lit, stmt.global)
     type := var_info.type
-    if !var_info.is_array || strings.starts_with(type, "DynamicArray") {
+    if !var_info.is_array || strings.starts_with(type, "RawDynamic") {
         write("{} {} = ", type, stmt.name.lit)
     } else {
         write("{} {}[] =", type, stmt.name.lit)
@@ -462,8 +470,24 @@ visit_fn_call_expr :: proc(visitor: Visitor, expr: ^FnCallExpr) {
                 write("len_str(")
                 visit(visitor, expr.args[0])
                 write(")")
+            case "RawDynamic":
+                write("len_dyn_arr(")
+                visit(visitor, expr.args[0])
+                write(")")
             case:
-                fmt.panicf("Not implemented for {}", type)
+                fmt.panicf("Not implemented `len` for {}", type)
+            }
+        } else if expr.name.lit == "at" {
+            type := type_from_expr(expr.args[0])
+            switch type {
+            case "RawDynamic":
+                t := expr.args[0].as.(^VarExpr).name.lit
+                var := get_var_info(t, false)
+                write("at_dyn_arr(")
+                visit(visitor, expr.args[0])
+                write(",")
+                visit(visitor, expr.args[1])
+                write(",sizeof({}))", var.dynamic_type)
             }
         } else if expr.name.lit == "c" {
             prevv := ctx.in_ctx
@@ -494,6 +518,18 @@ visit_fn_call_expr :: proc(visitor: Visitor, expr: ^FnCallExpr) {
                 write(");\n")
             case:
                 fmt.panicf("Not implemented for {}", type)
+            }
+        } else if expr.name.lit == "append" {
+            type := type_from_expr(expr.args[0])
+            switch type {
+            case "RawDynamic*":
+                t := expr.args[0].as.(^VarExpr).name.lit
+                var := get_var_info(t, false)
+                write("append_dyn_arr(")
+                visit(visitor, expr.args[0])
+                write(",")
+                visit(visitor, expr.args[1])
+                write(", sizeof({}));\n", var.dynamic_type)
             }
         } else {
             write("{}(", expr.name.lit)
@@ -687,7 +723,7 @@ visit_array_type_expr :: proc(visitor: Visitor, expr: ^ArrayTypeExpr) {
             write("}}")
         } else {
             type := type_from_expr(expr.type)
-            write("make_dynamic_array<{}>()", type)
+            write("make_dyn_arr(sizeof({}))", type)
         }
     case .AS_ARG, .IN_STRUCT_INIT, .FOR_INIT, .TO_CSTR:
         fmt.panicf("Not implemented yet {}", ctx.in_ctx)
@@ -796,42 +832,10 @@ deal_with_import :: proc(import_path: string) {
 }
 
 transpile_file :: proc(ast: []^AstNode) {
-    ctx.std_mod_paths = collect_std_mods()
 
     // note(marco) remove this when typedef
     ctx.write_state = .DEFINE
     write("typedef unsigned char uchar;\n")
-    write("extern \"C\" void* realloc(void*, long);\n")
-    write("template<typename T>\n")
-    write("struct DynamicArray {{\n")
-    write("T* items;\n")
-    write("int len;\n")
-    write("int cap;\n")
-    write("}};\n")
-    write("template<typename T>\n")
-    write("DynamicArray<T> make_dynamic_array() {{\n")
-    write("return DynamicArray<T>{{nullptr, 0, 256}};\n")
-    write("}}\n")
-    write("template<typename T>\n")
-    write("T at_dynamic_array(DynamicArray<T> arr, int x) {{\n")
-    write("return arr.items[x];\n")
-    write("}}\n")
-    write("template<typename T>\n")
-    write("void append_dynamic_array(DynamicArray<T>* arr, T append) {{\n")
-    write("if (arr->items == nullptr || arr->len + 1 >= arr->cap) {{\n")
-    write("arr->cap = arr->items == nullptr ? arr->cap : arr->cap * 2;\n")
-    write("arr->items = (T*)realloc(arr->items, arr->cap);\n")
-    write("}}\n")
-    write("arr->items[arr->len] = append;\n")
-    write("arr->len += 1;\n")
-    write("}}\n")
-    ctx.write_state = .TOP_LEVEL
-    write("template<typename T>\n")
-    write("DynamicArray<T> make_dynamic_array();\n")
-    write("template<typename T>\n")
-    write("void append_dynamic_array(DynamicArray<T>*, T);\n")
-    write("template<typename T>\n")
-    write("T at_dynamic_array(DynamicArray<T>, int);\n")
     ctx.write_state = .DECL
 
     transpile_cpp(ast)
@@ -882,18 +886,6 @@ transpile_cpp :: proc(ast: []^AstNode) {
         }
     }
 
-
-    //    for k, v in ctx.functions_info {
-    //        fmt.println(k)
-    //        fmt.println("=> ScopesVariables:")
-    //        for _, value in v.scope_variables {
-    //            fmt.println("    ", value)
-    //        }
-    //        fmt.println("=> Args:")
-    //        for par in v.params {
-    //            fmt.println("    ", par)
-    //        }
-    //    }
 
     for node in ast {
         if fn_decl, ok := node.as.(^FnDeclStmt); ok {
