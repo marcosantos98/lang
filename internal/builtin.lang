@@ -1,10 +1,12 @@
+import "std:c"
+
 struct string {
     data ^void,
     len int,
 }
 
 builtin_make_string :: string(data ^void, len int) {
-    return string{xx data, len}
+    return string{data, len}
 }
 
 len_str :: int(str string) {
@@ -13,4 +15,38 @@ len_str :: int(str string) {
 
 to_cstring :: ^char(str string) {
     return str.data as ^char
+}
+
+struct RawDynamic {
+    items ^void,
+    cap int,
+    len int,
+}
+
+make_dyn_arr :: RawDynamic(elsize size_t) {
+    var items = malloc(1024 * elsize)
+    return RawDynamic{items, 1024, 0}
+}
+
+append_dyn_arr :: void(arr ^RawDynamic, item ^void, elsize size_t) {
+    if arr.len + 1 > arr.cap {
+	arr.cap = arr.cap * 2
+	arr.items = realloc(arr.items, arr.cap * elsize)
+    }
+    var dest: ^char = (arr.items as ^char) + (arr.len * elsize)
+    memcpy(dest, item, elsize)
+    arr.len += 1
+}
+
+// FIXME: this could return the ptr to the item itself. Maybe with `generics`
+at_dyn_arr :: ^void(arr RawDynamic, idx int, elsize size_t) {
+    return (arr.items as ^char) + (idx * elsize)
+}
+
+len_dyn_arr :: int(arr RawDynamic) {
+    return arr.len
+}
+
+destroy_dyn_arr :: void(arr RawDynamic) {
+    free(arr.items)
 }
