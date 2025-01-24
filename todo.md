@@ -4,6 +4,9 @@
     - [x] Allow compiler options like `-o`
     - [ ] Autolink libraries using the provided libname in extern
     - [ ] Add `build.bat` and `build.sh`
+        - [x] `build.bat`
+        - [ ] `build.sh`
+    - [ ] Binding generators?
 - Translation
     - [x] Don't reinclude included files.
     - [ ] Package definitions to help with transpile. add package name to begin of each module declaration
@@ -12,6 +15,7 @@
         - This should be moved to typecheker
         - Autocast doesn't work on struct fields
     - [ ] Imported files
+        - [ ] Include paths should be relative to the file importing it not relative to where the program is being executed.
         - [ ] Files are copied into provided main files and could be accessed only if used to remove unneccessary code
         - [x] Currently leaks due to need of keep definitions!
     - [ ] Fix: Getting types of struct fields with more than on layer deep breaks: `foo.bar.baz`
@@ -27,8 +31,9 @@
     - [ ] Fix: `<` has lower precedence than `+`. `a + b > c` breaks
     - [x] Allow symbols on identifiers like: _, 0-9
     - [ ] Allow functions on structs
-    - [ ] Add: ==, !, <=, >=
+    - [ ] Add: ==, !, <=, >=, -, &&, ||, &, |, ^, ~
         - [x] `!`
+        - [x] `-`
     - [ ] Change StructFieldExpr to SelectorExpr and allow `fncall().x`
     - [ ] Allow use of compiler flags on parsing
         - Something like: `#cflags="-c"`
@@ -52,3 +57,6 @@
         - [ ] Add support for `len`
     - [ ] Maps
     - [ ] Typeinfo
+- General
+    - [ ] Try not to piggy back to much on the c++ compiler for errors
+        - [ ] Undeclared definitions can be checked before  

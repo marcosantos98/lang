@@ -777,6 +777,9 @@ deal_with_import :: proc(import_path: string) {
 
     ok: bool
     file.file.content, ok = os.read_entire_file(import_path, context.temp_allocator)
+    if !ok {
+        fmt.panicf("{} doesn't exist.", import_path)
+    }
 
 
     if !tokenize(&file) {
@@ -874,7 +877,7 @@ transpile_cpp :: proc(ast: []^AstNode) {
                     val.already_included = true
                 }
             } else {
-                fmt.panicf("Invalid path {}", import_decl.path.lit)
+                deal_with_import(import_decl.path.lit)
             }
         }
     }
