@@ -258,7 +258,7 @@ type_from_expr :: proc(expr: ^Expr) -> string {
         }
         return var_type
     case ^AsExpr:
-        return "UPSIE"
+        return type_from_expr(e.rhs)
     case ^ParenExpr:
         return type_from_expr(e.expr)
     case:
