@@ -15,6 +15,7 @@ _ :: filepath
 FileContext :: struct {
     parser: struct {
         in_assign:     bool,
+        is_neg:        bool,
         is_pointer:    bool,
         is_deref:      bool,
         is_type_parse: bool,
@@ -337,7 +338,7 @@ NodeType :: union {
     ^VarArgsExpr,
     ^AsExpr,
     ^ParenExpr,
-    ^NotExpr,
+    ^UnaryExpr,
 }
 
 Expr :: struct {
@@ -350,9 +351,10 @@ AssignFlag :: enum {
     MINUS,
 }
 
-NotExpr :: struct {
-    using _: Expr,
-    expr:    ^Expr,
+UnaryExpr :: struct {
+    using _:  Expr,
+    operator: Token,
+    expr:     ^Expr,
 }
 
 ParenExpr :: struct {
@@ -436,7 +438,7 @@ ExprType :: union {
     ^VarArgsExpr,
     ^AsExpr,
     ^ParenExpr,
-    ^NotExpr,
+    ^UnaryExpr,
 }
 
 Statement :: struct {
@@ -1458,15 +1460,17 @@ parse_paren_expr :: proc(filectx: ^FileContext) -> (^AstNode, bool) {
     return newstmtnode(node), true
 }
 
-// :not
-parse_not_expr :: proc(filectx: ^FileContext) -> (^AstNode, bool) {
+// :unary_expr
+parse_unary_expr :: proc(filectx: ^FileContext) -> (^AstNode, bool) {
 
-    adv(filectx) // !
+    operator := tok(filectx)
+    adv(filectx) // !, -
     expr := parse_as_stmt_expr_or(filectx, "Failed to parse not expression")
 
-    node := newnode(NotExpr)
+    node := newnode(UnaryExpr)
     node.as_expr = node
     node.expr = expr
+    node.operator = operator
 
     return newstmtnode(node), true
 }
@@ -1508,8 +1512,8 @@ parse_primary :: proc(filectx: ^FileContext) -> (^AstNode, bool) {
         }
     case .OPEN_PAREN:
         return parse_paren_expr(filectx)
-    case .NOT:
-        return parse_not_expr(filectx)
+    case .NOT, .MINUS:
+        return parse_unary_expr(filectx)
     }
     fmt.panicf("Parser: {} Not valid primary: {}", tokloc(filectx), tok(filectx).lit)
 }
