@@ -3,3 +3,7 @@
 *.cpp
 *.rdi
 tests.odin
+.vscode
+bug/
+build/
+raylib/
