@@ -1903,7 +1903,7 @@ main :: proc() {
 
     cmd_builder := strings.builder_make(context.temp_allocator)
 
-    fmt.sbprintf(&cmd_builder, "clang++ ")
+    fmt.sbprintf(&cmd_builder, "clang++ -Wno-writable-strings ")
     if opts.compile_with_debug {
         fmt.sbprintf(&cmd_builder, "-ggdb ")
     }

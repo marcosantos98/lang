@@ -21,6 +21,8 @@
     - [ ] Fix: Getting types of struct fields with more than on layer deep breaks: `foo.bar.baz`
     - [x] Fix: `fncall(fncall2())` breaks cause transpiler places `;` at argument level
     - [x] Add `cstring` internal to place string instead of creating a lenght string.
+    - [ ] CPP Things
+        - [ ] `^char` translates to `char*` and c++11 doesn't allow writable strings so `-Wno-writable-strings` is hardcoded.
 - Parser
     - [ ] Add positions to expressions?
     - [ ] Allow empty init/cond/post in for loop statement
